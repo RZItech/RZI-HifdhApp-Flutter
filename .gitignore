@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Speech-to-Text models
+assets/models/vosk_arabic/vosk-model-ar-mgb2-0.4.zip

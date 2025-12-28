@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rzi_hifdhapp/core/services/speech_recognition_service.dart';
 import 'package:rzi_hifdhapp/core/utils/arabic_text_utils.dart';
-import 'package:rzi_hifdhapp/features/book/domain/entities/book.dart';
 import 'package:rzi_hifdhapp/features/book/domain/entities/chapter.dart';
 import 'package:rzi_hifdhapp/features/test/presentation/bloc/test_event.dart';
 import 'package:rzi_hifdhapp/features/test/presentation/bloc/test_state.dart';
