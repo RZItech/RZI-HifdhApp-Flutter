@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rzi_hifdhapp/features/book/domain/entities/book.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/widgets/chapter_card.dart';
-import 'package:rzi_hifdhapp/features/test/presentation/bloc/test_bloc.dart'; // Added
-import 'package:rzi_hifdhapp/features/test/presentation/bloc/test_event.dart'; // Added
 
-class BookPage extends StatefulWidget {
+class BookPage extends StatefulWidget { // Keep as StatefulWidget for now, will revert ChapterCard first
   final Book book;
 
   const BookPage({super.key, required this.book});
@@ -23,12 +20,6 @@ class _BookPageState extends State<BookPage> {
       appBar: AppBar(
         title: Text(widget.book.name),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.mic),
-            onPressed: () {
-              context.read<TestBloc>().add(StartTestFromBeginning(widget.book));
-            },
-          ),
           IconButton(
             icon: Icon(
               _isEnglishVisible ? Icons.visibility_off : Icons.visibility,
