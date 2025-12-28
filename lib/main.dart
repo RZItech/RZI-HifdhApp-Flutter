@@ -4,6 +4,7 @@ import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_bloc.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_event.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/pages/home_page.dart';
 import 'package:rzi_hifdhapp/features/player/presentation/bloc/player_bloc.dart';
+import 'package:rzi_hifdhapp/features/test/presentation/bloc/test_bloc.dart'; // Added
 import 'package:rzi_hifdhapp/core/di/injection_container.dart' as di;
 
 void main() async {
@@ -24,6 +25,9 @@ class MyApp extends StatelessWidget {
         ),
         BlocProvider(
           create: (_) => di.sl<PlayerBloc>(),
+        ),
+        BlocProvider(
+          create: (_) => di.sl<TestBloc>(), // Added
         ),
       ],
       child: MaterialApp(
