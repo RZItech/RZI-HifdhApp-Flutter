@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>This app uses speech recognition to test your memorization of the book.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app uses the microphone to record your voice for speech recognition.</string>
 </dict>
 </plist>
