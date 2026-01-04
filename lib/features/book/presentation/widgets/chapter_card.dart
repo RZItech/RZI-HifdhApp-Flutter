@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:talker_flutter/talker_flutter.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rzi_hifdhapp/core/di/injection_container.dart';
 import 'package:rzi_hifdhapp/core/services/speech_service.dart';
@@ -41,14 +42,18 @@ class _ChapterCardState extends State<ChapterCard> {
     _speechService.initSpeech();
     _speechService.statusNotifier.addListener(_onStatusChange);
     _speechService.errorNotifier.addListener(_onError);
-    _speechService.recognizedWordsNotifier.addListener(_onRecognizedWordsChange);
+    _speechService.recognizedWordsNotifier.addListener(
+      _onRecognizedWordsChange,
+    );
   }
 
   @override
   void dispose() {
     _speechService.statusNotifier.removeListener(_onStatusChange);
     _speechService.errorNotifier.removeListener(_onError);
-    _speechService.recognizedWordsNotifier.removeListener(_onRecognizedWordsChange);
+    _speechService.recognizedWordsNotifier.removeListener(
+      _onRecognizedWordsChange,
+    );
     super.dispose();
   }
 
@@ -62,7 +67,9 @@ class _ChapterCardState extends State<ChapterCard> {
 
   void _onStatusChange() {
     final status = _speechService.statusNotifier.value;
-    if (mounted && _isRecording && (status == 'done' || status == 'notListening')) {
+    if (mounted &&
+        _isRecording &&
+        (status == 'done' || status == 'notListening')) {
       setState(() {
         _isRecording = false;
       });
@@ -73,7 +80,7 @@ class _ChapterCardState extends State<ChapterCard> {
   void _onError() {
     final error = _speechService.errorNotifier.value;
     if (error != null) {
-      print("Speech recognition error: ${error.errorMsg}");
+      sl<Talker>().error("Speech recognition error: ${error.errorMsg}");
     }
   }
 
@@ -92,14 +99,24 @@ class _ChapterCardState extends State<ChapterCard> {
   void _validateSpeech() {
     final recognizedText = _speechService.recognizedWordsNotifier.value;
     final normalizedRecognized = TextUtils.normalizeArabic(recognizedText);
-    final normalizedTarget = TextUtils.normalizeArabic(widget.chapter.arabicText);
+    final normalizedTarget = TextUtils.normalizeArabic(
+      widget.chapter.arabicText,
+    );
 
     if (normalizedRecognized == normalizedTarget) {
+      sl<Talker>().info('Speech validation success');
       setState(() {
         _isCorrect = true;
         _cardColor = Colors.green;
       });
     } else {
+      sl<Talker>().error(
+        'Speech validation failed.\n'
+        'Raw Recognized: "$recognizedText"\n'
+        'Normalized Recognized: "$normalizedRecognized"\n'
+        'Normalized Target: "$normalizedTarget"\n'
+        'Difference index: ${_findFirstDifference(normalizedRecognized, normalizedTarget)}',
+      );
       setState(() {
         _incorrectAttempts++;
         if (_incorrectAttempts >= 3) {
@@ -151,9 +168,7 @@ class _ChapterCardState extends State<ChapterCard> {
                     ),
                   ),
                 if (widget.isEnglishVisible) const SizedBox(width: 16),
-                Expanded(
-                  child: _buildArabicText(),
-                ),
+                Expanded(child: _buildArabicText()),
               ],
             ),
             const SizedBox(height: 16),
@@ -179,10 +194,13 @@ class _ChapterCardState extends State<ChapterCard> {
                         onPressed: () {
                           if (isPlaying) {
                             context.read<PlayerBloc>().add(PauseEvent());
-                          }
-                          else {
-                            context.read<PlayerBloc>().add(PlayEvent(
-                                bookName: widget.bookName, chapter: widget.chapter));
+                          } else {
+                            context.read<PlayerBloc>().add(
+                              PlayEvent(
+                                bookName: widget.bookName,
+                                chapter: widget.chapter,
+                              ),
+                            );
                           }
                         },
                       );
@@ -199,15 +217,27 @@ class _ChapterCardState extends State<ChapterCard> {
   Widget _buildArabicText() {
     const baseStyle = TextStyle(fontSize: 20, fontFamily: 'Arabic');
     if (!widget.isTestingMode) {
-      return Text(widget.chapter.arabicText, style: baseStyle, textAlign: TextAlign.right);
+      return Text(
+        widget.chapter.arabicText,
+        style: baseStyle,
+        textAlign: TextAlign.right,
+      );
     }
 
     if (_isCorrect) {
-      return Text(widget.chapter.arabicText, style: baseStyle.copyWith(color: Colors.green), textAlign: TextAlign.right);
+      return Text(
+        widget.chapter.arabicText,
+        style: baseStyle.copyWith(color: Colors.green),
+        textAlign: TextAlign.right,
+      );
     }
 
     if (_showFailedWord) {
-      return Text(widget.chapter.arabicText, style: baseStyle.copyWith(color: Colors.red), textAlign: TextAlign.right);
+      return Text(
+        widget.chapter.arabicText,
+        style: baseStyle.copyWith(color: Colors.red),
+        textAlign: TextAlign.right,
+      );
     }
 
     if (_isRecording || _partiallyRecognizedText.isNotEmpty) {
@@ -222,15 +252,25 @@ class _ChapterCardState extends State<ChapterCard> {
 
         if (!mismatchFound && i < recognizedWords.length) {
           String recognizedWord = recognizedWords[i];
-          if (TextUtils.normalizeArabic(targetWord) == TextUtils.normalizeArabic(recognizedWord)) {
-            currentSpan = TextSpan(text: '$targetWord ', style: baseStyle.copyWith(color: Colors.green));
+          if (TextUtils.normalizeArabic(targetWord) ==
+              TextUtils.normalizeArabic(recognizedWord)) {
+            currentSpan = TextSpan(
+              text: '$targetWord ',
+              style: baseStyle.copyWith(color: Colors.green),
+            );
           } else {
             mismatchFound = true;
-            currentSpan = TextSpan(text: '$targetWord ', style: baseStyle.copyWith(color: Colors.grey));
+            currentSpan = TextSpan(
+              text: '$targetWord ',
+              style: baseStyle.copyWith(color: Colors.grey),
+            );
           }
         } else {
           mismatchFound = true;
-          currentSpan = TextSpan(text: '$targetWord ', style: baseStyle.copyWith(color: Colors.grey));
+          currentSpan = TextSpan(
+            text: '$targetWord ',
+            style: baseStyle.copyWith(color: Colors.grey),
+          );
         }
         spans.add(currentSpan);
       }
@@ -241,9 +281,13 @@ class _ChapterCardState extends State<ChapterCard> {
       );
     }
 
-    return Container(
-      color: Colors.grey[300],
-      height: 20,
-    );
+    return Container(color: Colors.grey[300], height: 20);
+  }
+
+  int _findFirstDifference(String s1, String s2) {
+    for (int i = 0; i < s1.length && i < s2.length; i++) {
+      if (s1[i] != s2[i]) return i;
+    }
+    return s1.length < s2.length ? s1.length : s2.length;
   }
 }

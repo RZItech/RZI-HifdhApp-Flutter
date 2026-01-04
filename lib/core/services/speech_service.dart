@@ -7,7 +7,9 @@ import 'package:speech_to_text/speech_recognition_error.dart';
 class SpeechService {
   final SpeechToText _speechToText = SpeechToText();
   final ValueNotifier<String> statusNotifier = ValueNotifier('');
-  final ValueNotifier<SpeechRecognitionError?> errorNotifier = ValueNotifier(null);
+  final ValueNotifier<SpeechRecognitionError?> errorNotifier = ValueNotifier(
+    null,
+  );
   final ValueNotifier<String> recognizedWordsNotifier = ValueNotifier('');
   bool _speechEnabled = false;
   String _lastWords = '';
@@ -25,9 +27,15 @@ class SpeechService {
   }
 
   Future<void> requestPermission() async {
-    final status = await Permission.microphone.request();
-    if (status != PermissionStatus.granted) {
+    final microphoneStatus = await Permission.microphone.request();
+    final speechStatus = await Permission.speech.request();
+
+    if (microphoneStatus != PermissionStatus.granted) {
       throw Exception('Microphone permission not granted');
+    }
+
+    if (speechStatus != PermissionStatus.granted) {
+      throw Exception('Speech recognition permission not granted');
     }
   }
 

@@ -8,9 +8,24 @@ import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_cubit.da
 import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_state.dart';
 import 'package:rzi_hifdhapp/core/di/injection_container.dart' as di;
 
+import 'package:flutter/foundation.dart';
+import 'package:talker_flutter/talker_flutter.dart';
+import 'package:talker_bloc_logger/talker_bloc_logger.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await di.init();
+
+  final talker = di.sl<Talker>();
+  Bloc.observer = TalkerBlocObserver(talker: talker);
+
+  FlutterError.onError = (details) =>
+      talker.handle(details.exception, details.stack);
+  PlatformDispatcher.instance.onError = (error, stack) {
+    talker.handle(error, stack);
+    return true;
+  };
+
   runApp(const MyApp());
 }
 

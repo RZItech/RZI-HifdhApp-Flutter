@@ -15,18 +15,30 @@ class TextUtils {
 
     // Replace Taa Marbutah with Haa
     normalized = normalized.replaceAll('ة', 'ه');
-    normalized = normalized.replaceAll('\uFE94', 'ه');
+    normalized = normalized.replaceAll('ﺔ', 'ه');
     // Replace Alif Maqsurah with Alif
     normalized = normalized.replaceAll('ى', 'ا');
 
     // Remove diacritics/Tashkeel by explicitly listing common ones
     // Fatha, Damma, Kasra, Shadda, Sukun, Fathatan, Dammatan, Kasratan
-    normalized = normalized.replaceAll(RegExp('[\u064E\u064F\u0650\u0651\u0652\u064B\u064C\u064D]'), '');
+    normalized = normalized.replaceAll(
+      RegExp('[\u064E\u064F\u0650\u0651\u0652\u064B\u064C\u064D]'),
+      '',
+    );
 
     // Remove punctuation and spaces
     // Explicitly listing special characters for RegExp character class
     normalized = normalized.replaceAll(RegExp('[.,:;?!\\-_" ]()'), '');
     normalized = normalized.replaceAll(RegExp(':'), ' ');
+
+    // Remove invisible formatting characters (RLM, LRM, etc.) that iOS might insert
+    // \u200E: Left-to-Right Mark
+    // \u200F: Right-to-Left Mark
+    // \u202A-\u202E: Directional formatting
+    normalized = normalized.replaceAll(
+      RegExp('[\u200E\u200F\u202A-\u202E]'),
+      '',
+    );
 
     // Remove Tatweel (elongation character)
     normalized = normalized.replaceAll('ـ', '');
