@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:  
   build:      
     name: Build IOS Nightly
@@ -81,12 +84,11 @@ jobs:
           path: |
             build/ios/archive/Runner.xcarchive/Products/Applications/hifdhapp-flutter-git.ipa
             
-      - name: Update nightly
-        uses: IsaacShelton/update-existing-release@v1.3.5
-        with:
-          token: ${{secrets.GITHUB_TOKEN}}
-          release: "Nightly"
-          tag: "nightly"
-          replace: true
-          files: >
-              build/ios/archive/Runner.xcarchive/Products/Applications/hifdhapp-flutter-git.ipa
+      - name: Upload Asset to Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME=nightly
+          FILE_PATH="build/ios/archive/Runner.xcarchive/Products/Applications/hifdhapp-flutter-git.ipa"
+          echo "Uploading $FILE_PATH to release $TAG_NAME..."
+          gh release upload "$TAG_NAME" "$FILE_PATH" --clobber
