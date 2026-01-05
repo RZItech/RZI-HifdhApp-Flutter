@@ -7,6 +7,7 @@ import 'package:rzi_hifdhapp/features/book/data/repositories/book_repository_imp
 import 'package:rzi_hifdhapp/features/book/domain/repositories/book_repository.dart';
 import 'package:rzi_hifdhapp/features/book/domain/usecases/get_books.dart';
 import 'package:rzi_hifdhapp/features/book/domain/usecases/import_book.dart';
+import 'package:rzi_hifdhapp/features/book/domain/usecases/delete_book.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_bloc.dart';
 import 'package:rzi_hifdhapp/features/player/presentation/bloc/player_bloc.dart';
 import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_cubit.dart';
@@ -16,13 +17,16 @@ final sl = GetIt.instance;
 
 Future<void> init() async {
   // Blocs
-  sl.registerFactory(() => BookBloc(getBooks: sl(), importBook: sl()));
+  sl.registerFactory(
+    () => BookBloc(getBooks: sl(), importBook: sl(), deleteBook: sl()),
+  );
   sl.registerFactory(() => PlayerBloc(audioPlayer: sl()));
   sl.registerLazySingleton(() => ThemeCubit(sl()));
 
   // Use cases
   sl.registerLazySingleton(() => GetBooks(sl()));
   sl.registerLazySingleton(() => ImportBook(sl()));
+  sl.registerLazySingleton(() => DeleteBook(sl()));
 
   // Repositories
   sl.registerLazySingleton<BookRepository>(

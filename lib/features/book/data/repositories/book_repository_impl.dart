@@ -16,4 +16,9 @@ class BookRepositoryImpl implements BookRepository {
   Future<void> importBook() {
     return localDataSource.importBook();
   }
+
+  @override
+  Future<void> deleteBook(Book book) {
+    return localDataSource.deleteBook(book.id);
+  }
 }

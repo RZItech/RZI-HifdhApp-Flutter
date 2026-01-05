@@ -11,6 +11,7 @@ import 'package:yaml/yaml.dart';
 abstract class BookLocalDataSource {
   Future<List<BookModel>> getBooks();
   Future<void> importBook();
+  Future<void> deleteBook(String id);
 }
 
 class BookLocalDataSourceImpl implements BookLocalDataSource {
@@ -104,6 +105,15 @@ class BookLocalDataSourceImpl implements BookLocalDataSource {
       final bytes = file.readAsBytesSync();
       final archive = ZipDecoder().decodeBytes(bytes);
       extractArchiveToDisk(archive, bookDir.path);
+    }
+  }
+
+  @override
+  Future<void> deleteBook(String id) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final bookDir = Directory('${appDir.path}/books/$id');
+    if (await bookDir.exists()) {
+      await bookDir.delete(recursive: true);
     }
   }
 }

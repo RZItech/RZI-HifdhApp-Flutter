@@ -3,6 +3,7 @@ import 'package:rzi_hifdhapp/features/book/data/models/chapter_model.dart';
 
 class BookModel extends Book {
   const BookModel({
+    required super.id,
     required super.name,
     required super.chapters,
   });
@@ -20,6 +21,7 @@ class BookModel extends Book {
     chapters.sort((a, b) => a.id.compareTo(b.id));
 
     return BookModel(
+      id: bookName,
       name: yaml['name'] ?? bookName,
       chapters: chapters,
     );

@@ -63,7 +63,7 @@ dev_dependencies:
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
-
+  flutter_launcher_icons: "^0.14.4"
 # The following section is specific to Flutter packages.
 flutter:
 
@@ -101,3 +101,17 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+flutter_launcher_icons:
+  image_path: "assets/icons/icon-light.png"
+  android: true
+  adaptive_icon_background: "#ffffff"
+  adaptive_icon_foreground: "assets/icons/icon-light.png"
+  adaptive_icon_monochrome: "assets/icons/icon-light.png"
+
+  ios: true
+  background_color_ios: "#ffffff"
+  image_path_ios_dark_transparent: "assets/icons/icon-dark.png"
+  remove_alpha_ios: true
+  remove_alpha_channel_ios: true
+  image_path_ios_tinted_grayscale: "assets/icons/icon-dark.png"

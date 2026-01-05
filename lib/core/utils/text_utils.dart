@@ -28,8 +28,9 @@ class TextUtils {
 
     // Remove punctuation and spaces
     // Explicitly listing special characters for RegExp character class
-    normalized = normalized.replaceAll(RegExp('[.,:;?!\\-_" ]()'), '');
-    normalized = normalized.replaceAll(RegExp(':'), ' ');
+    // Matches: . , : ; ? ! - _ " ( ) and whitespace (including newlines)
+    normalized = normalized.replaceAll(RegExp(r'[.,:;?!\-_"()]'), '');
+    normalized = normalized.replaceAll(RegExp(r'\s'), ' ');
 
     // Remove invisible formatting characters (RLM, LRM, etc.) that iOS might insert
     // \u200E: Left-to-Right Mark

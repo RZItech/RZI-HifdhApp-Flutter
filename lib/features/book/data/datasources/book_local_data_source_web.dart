@@ -7,6 +7,7 @@ import 'package:yaml/yaml.dart';
 abstract class BookLocalDataSource {
   Future<List<BookModel>> getBooks();
   Future<void> importBook();
+  Future<void> deleteBook(String id);
 }
 
 // Web-specific implementation that uses in-memory storage
@@ -55,5 +56,10 @@ class BookLocalDataSourceImpl implements BookLocalDataSource {
   Future<void> importBook() async {
     // File picker is not supported on web
     return;
+  }
+
+  @override
+  Future<void> deleteBook(String id) async {
+    _webBookStorage.remove(id);
   }
 }
