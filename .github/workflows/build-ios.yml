@@ -71,6 +71,7 @@ jobs:
 
       - name: Compress Archives and IPAs
         run: |
+          find build/ios/archive/Runner.xcarchive/ | sed -e "s/[^-][^\/]*\// |/g" -e "s/|\([^ ]\)/|-\1/"
           cd build/ios/archive/Runner.xcarchive/Products/Applications/
           mkdir Payload
           cp -r Runner.app Payload/
