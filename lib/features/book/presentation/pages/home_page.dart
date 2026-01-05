@@ -7,6 +7,7 @@ import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_event.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_state.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/pages/book_page.dart';
 import 'package:rzi_hifdhapp/features/settings/presentation/pages/settings_page.dart';
+import 'package:rzi_hifdhapp/features/book/presentation/pages/book_creator_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -28,11 +29,21 @@ class HomePage extends StatelessWidget {
         actions: [
           // Only show import button on non-web platforms
           if (!kIsWeb)
-            IconButton(
-              icon: const Icon(Icons.add),
-              onPressed: () {
+            InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () {
                 context.read<BookBloc>().add(ImportBookEvent());
               },
+              onLongPress: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const BookCreatorPage()),
+                );
+              },
+              child: const Padding(
+                padding: EdgeInsets.all(12.0),
+                child: Icon(Icons.add),
+              ),
             ),
         ],
       ),
