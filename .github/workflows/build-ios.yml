@@ -35,7 +35,7 @@ jobs:
         env:
           RUNNER_OS: macos
         with:
-          flutter-version: '3.38.0'
+          flutter-version: '3.38.5'
           channel: 'stable'
 
         #4 Install Dependencies
