@@ -11,13 +11,15 @@ class TextUtils {
     // normalized = normalized.replaceAll('ستة','6');
     // normalized = normalized.replaceAll('سبعة','7');
     // normalized = normalized.replaceAll('ثمانية','8');
-    // normalized = normalized.replaceAll('تسعة','9');
+    // normalized = normalized.replaceAll('تسعة', '9');
 
     // Replace Taa Marbutah with Haa
     normalized = normalized.replaceAll('ة', 'ه');
     normalized = normalized.replaceAll('ﺔ', 'ه');
     // Replace Alif Maqsurah with Alif
     normalized = normalized.replaceAll('ى', 'ا');
+    // Replace Alif Hamza/Madda with Alif
+    normalized = normalized.replaceAll(RegExp('[أإآ]'), 'ا');
 
     // Remove diacritics/Tashkeel by explicitly listing common ones
     // Fatha, Damma, Kasra, Shadda, Sukun, Fathatan, Dammatan, Kasratan

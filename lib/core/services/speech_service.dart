@@ -54,6 +54,7 @@ class SpeechService {
       localeId: 'ar_SA', // Arabic locale
       listenFor: const Duration(seconds: 60),
       pauseFor: const Duration(seconds: 5),
+      listenOptions: SpeechListenOptions(partialResults: true),
     );
   }
 
