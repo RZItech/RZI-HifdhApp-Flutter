@@ -75,7 +75,7 @@ jobs:
           cd build/ios/archive/Runner.xcarchive/Products/Applications/
           mkdir Payload
           cp -r Runner.app Payload/
-          zip -R hifdhapp-flutter-git.ipa Payload/
+          zip -r hifdhapp-flutter-git.ipa Payload/
 
         #9 Upload Artifacts
       - name: Upload Artifacts
