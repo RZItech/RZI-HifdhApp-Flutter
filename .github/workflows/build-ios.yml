@@ -1,4 +1,4 @@
-name: "Build"
+name: "Build IOS"
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ on:
 
 jobs:  
   build:      
-    name: Build & Release 
+    name: Build IOS Nightly
     runs-on: macos-latest 
 
     steps:
@@ -69,7 +69,7 @@ jobs:
 
         #9 Upload Artifacts
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: Releases
           path: |
