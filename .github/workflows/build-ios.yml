@@ -12,7 +12,8 @@ jobs:
   build:      
     name: Build IOS Nightly
     runs-on: macos-latest 
-
+    env:
+      RUNNER_OS: macos
     steps:
         #1 Checkout Repository
       - name: Checkout Repository
@@ -28,6 +29,8 @@ jobs:
         #3 Setup Flutter
       - name: Set Up Flutter
         uses: subosito/flutter-action@v2
+        env:
+          RUNNER_OS: macos
         with:
           flutter-version: 'latest'
           channel: 'stable'
