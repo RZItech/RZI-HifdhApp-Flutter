@@ -7,7 +7,7 @@ import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_event.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_state.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/pages/book_page.dart';
 import 'package:rzi_hifdhapp/features/settings/presentation/pages/settings_page.dart';
-import 'package:rzi_hifdhapp/features/book/presentation/pages/book_creator_page.dart';
+import 'package:rzi_hifdhapp/features/book/presentation/pages/drafts_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -37,7 +37,7 @@ class HomePage extends StatelessWidget {
               onLongPress: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const BookCreatorPage()),
+                  MaterialPageRoute(builder: (_) => const DraftsPage()),
                 );
               },
               child: const Padding(

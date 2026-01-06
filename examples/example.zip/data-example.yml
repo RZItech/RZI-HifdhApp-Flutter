@@ -1,0 +1,38 @@
+name: The Conditions Of Salah
+chapter_1:
+  name: Introduction
+  arabic: |
+    شُرُوطُ الصَّلَاةِ تِسْعَةٌ
+    الإسلام
+    والعقل
+    والتمييز
+    ورفع الحدث
+    وازالة النجاسة
+    وستر العورة
+    ودخول الوقت 
+    واستقبال القبلة
+    والنية  
+  translation: |
+    The conditions of Salah are nine.
+    Islam;
+    Intellect;
+    The ability to differentiate between things (right and wrong);
+    Removal of intangible impurity;
+    Removal of physical impurity;
+    Covering the 'Awrah (private parts);
+    Entering the time;
+    Facing the Qibla;
+    And the Intention;
+  audio_lines: |
+    0.000>5.543
+    6.001>9.457
+    9.001>9.457
+    11.001>12.457
+    13.001>14.457
+    15.001>16.457
+    17.001>18.457
+    19.001>20.457
+    21.001>22.457
+    23.001>24.457
+
+  audio: audio/chapter_1.mp3

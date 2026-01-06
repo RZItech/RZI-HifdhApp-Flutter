@@ -100,13 +100,31 @@ class _ChapterCardState extends State<ChapterCard> {
     final normalizedRecognized = TextUtils.normalizeArabic(recognizedText);
     final normalizedTarget = TextUtils.normalizeArabic(targetText);
 
+    sl<Talker>().debug(
+      'Live check - Rec: "$normalizedRecognized" | Tar: "$normalizedTarget"',
+    );
+
     // Check for exact match logic (same as validate)
-    if (normalizedRecognized == normalizedTarget) {
-      sl<Talker>().info('Live Match Found for Line $index!');
+    if (normalizedRecognized.isNotEmpty &&
+        normalizedRecognized == normalizedTarget) {
+      sl<Talker>().info('✓ Live Match Found for Line $index!');
+      setState(() {
+        _lineStates[index] = LineState.correct;
+        _attempts[index] = 0;
+      });
       _isRecording =
           false; // Prevent onStatusChange from triggering validation again
       _stopListening();
-      _handleSuccess(index);
+
+      // Auto-advance to next line
+      int nextIndex = index + 1;
+      if (nextIndex < _lines.length) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) _startListeningForLine(nextIndex);
+        });
+      } else {
+        sl<Talker>().info('Chapter Completed!');
+      }
     }
   }
 

@@ -11,6 +11,7 @@ import 'package:rzi_hifdhapp/features/book/domain/entities/book.dart';
 import 'package:rzi_hifdhapp/features/book/data/models/book_model.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_bloc.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_state.dart';
+import 'package:rzi_hifdhapp/features/book/data/models/draft_book.dart';
 
 class CreatorChapter {
   String name;
@@ -27,15 +28,57 @@ class CreatorChapter {
 }
 
 class BookCreatorPage extends StatefulWidget {
-  const BookCreatorPage({super.key});
+  final DraftBook? draft;
+  const BookCreatorPage({super.key, this.draft});
 
   @override
   State<BookCreatorPage> createState() => _BookCreatorPageState();
 }
 
 class _BookCreatorPageState extends State<BookCreatorPage> {
+  late String _draftId;
   final TextEditingController _nameController = TextEditingController();
   final List<CreatorChapter> _chapters = [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.draft != null) {
+      _draftId = widget.draft!.id;
+      _nameController.text = widget.draft!.name;
+      _chapters.addAll(
+        widget.draft!.chapters.map(
+          (c) => CreatorChapter(
+            name: c.name,
+            arabic: c.arabic,
+            translation: c.translation,
+            audioPath: c.audioPath,
+          ),
+        ),
+      );
+    } else {
+      _draftId = DateTime.now().millisecondsSinceEpoch.toString();
+    }
+  }
+
+  Future<void> _saveToDraft() async {
+    final draft = DraftBook(
+      id: _draftId,
+      name: _nameController.text.trim(),
+      chapters: _chapters
+          .map(
+            (c) => DraftChapter(
+              name: c.name,
+              arabic: c.arabic,
+              translation: c.translation,
+              audioPath: c.audioPath,
+            ),
+          )
+          .toList(),
+      lastModified: DateTime.now(),
+    );
+    await DraftService.saveDraft(draft);
+  }
 
   @override
   void dispose() {
@@ -305,71 +348,79 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Create Book'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.file_open),
-            onPressed: _showImportOptions,
-            tooltip: 'Import',
-          ),
-          IconButton(
-            icon: const Icon(Icons.share),
-            onPressed: _exportBook,
-            tooltip: 'Export',
-          ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Book Name',
-                border: OutlineInputBorder(),
-              ),
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) {
+          await _saveToDraft();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Create Book'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.file_open),
+              onPressed: _showImportOptions,
+              tooltip: 'Import',
             ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _chapters.length,
-                itemBuilder: (context, index) {
-                  final chapter = _chapters[index];
-                  return Card(
-                    child: ListTile(
-                      title: Text(
-                        chapter.name.isNotEmpty
-                            ? chapter.name
-                            : 'Untitled Chapter',
-                      ),
-                      subtitle: Text('${chapter.arabic.length} chars'),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.edit),
-                            onPressed: () => _editChapter(index),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete),
-                            onPressed: () => _removeChapter(index),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            ElevatedButton.icon(
-              onPressed: _addChapter,
-              icon: const Icon(Icons.add),
-              label: const Text('Add Chapter'),
+            IconButton(
+              icon: const Icon(Icons.share),
+              onPressed: _exportBook,
+              tooltip: 'Export',
             ),
           ],
+        ),
+        body: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              TextField(
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Book Name',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _chapters.length,
+                  itemBuilder: (context, index) {
+                    final chapter = _chapters[index];
+                    return Card(
+                      child: ListTile(
+                        title: Text(
+                          chapter.name.isNotEmpty
+                              ? chapter.name
+                              : 'Untitled Chapter',
+                        ),
+                        subtitle: Text('${chapter.arabic.length} chars'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () => _editChapter(index),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete),
+                              onPressed: () => _removeChapter(index),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: _addChapter,
+                icon: const Icon(Icons.add),
+                label: const Text('Add Chapter'),
+              ),
+            ],
+          ),
         ),
       ),
     );
