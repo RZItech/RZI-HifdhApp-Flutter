@@ -21,3 +21,12 @@ class PlayEvent extends PlayerEvent {
 class PauseEvent extends PlayerEvent {}
 
 class StopEvent extends PlayerEvent {}
+
+class SeekEvent extends PlayerEvent {
+  final Duration position;
+
+  const SeekEvent({required this.position});
+
+  @override
+  List<Object> get props => [position];
+}

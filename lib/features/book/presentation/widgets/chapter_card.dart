@@ -41,6 +41,9 @@ class _ChapterCardState extends State<ChapterCard> {
   final Map<int, int> _attempts = {};
   int? _currentLineIndex;
 
+  // Audio playback tracking for Player Mode
+  int? _currentPlayingLine;
+
   @override
   void initState() {
     super.initState();
@@ -51,6 +54,34 @@ class _ChapterCardState extends State<ChapterCard> {
     _speechService.recognizedWordsNotifier.addListener(
       _onRecognizedWordsChange,
     );
+
+    // Listen to audio position for Player Mode
+    if (!widget.isTestingMode) {
+      context.read<PlayerBloc>().audioPlayer.onPositionChanged.listen((
+        position,
+      ) {
+        if (mounted && widget.chapter.audioLines.isNotEmpty) {
+          _updateCurrentPlayingLine(position.inSeconds.toDouble());
+        }
+      });
+    }
+  }
+
+  void _updateCurrentPlayingLine(double currentSeconds) {
+    int? newPlayingLine;
+    for (int i = 0; i < widget.chapter.audioLines.length; i++) {
+      final range = widget.chapter.audioLines[i];
+      if (currentSeconds >= range.start && currentSeconds <= range.end) {
+        newPlayingLine = i;
+        break;
+      }
+    }
+
+    if (newPlayingLine != _currentPlayingLine) {
+      setState(() {
+        _currentPlayingLine = newPlayingLine;
+      });
+    }
   }
 
   void _parseLines() {
@@ -233,6 +264,21 @@ class _ChapterCardState extends State<ChapterCard> {
     });
   }
 
+  void _seekToLine(int lineIndex) {
+    if (lineIndex < widget.chapter.audioLines.length) {
+      final range = widget.chapter.audioLines[lineIndex];
+      context.read<PlayerBloc>().add(SeekEvent(
+        position: Duration(milliseconds: (range.start * 1000).toInt()),
+      ));
+      final playerState = context.read<PlayerBloc>().state;
+      if (playerState is! PlayerPlaying) {
+        context.read<PlayerBloc>().add(
+          PlayEvent(bookName: widget.bookName, chapter: widget.chapter),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -303,14 +349,20 @@ class _ChapterCardState extends State<ChapterCard> {
           break;
       }
     } else {
-      // Styling for Player Mode
-      // Use null to inherit Card's background color (matches theme)
-      backgroundColor = null;
+      // Styling for Player Mode: Highlight currently playing line
+      if (_currentPlayingLine == index) {
+        backgroundColor = Colors.blue.withValues(alpha: 0.15);
+      } else {
+        backgroundColor = null;
+      }
     }
 
     return InkWell(
-      // Only tap to test if in testing mode
-      onTap: widget.isTestingMode ? () => _startListeningForLine(index) : null,
+      onTap: widget.isTestingMode
+          ? () => _startListeningForLine(index)
+          : (widget.chapter.audioLines.isNotEmpty && index < widget.chapter.audioLines.length)
+              ? () => _seekToLine(index)
+              : null,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
         margin: const EdgeInsets.only(bottom: 4),

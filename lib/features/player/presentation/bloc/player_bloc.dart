@@ -33,5 +33,9 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
       await audioPlayer.stop();
       emit(PlayerStopped());
     });
+
+    on<SeekEvent>((event, emit) async {
+      await audioPlayer.seek(event.position);
+    });
   }
 }

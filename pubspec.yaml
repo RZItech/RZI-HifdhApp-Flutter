@@ -65,6 +65,7 @@ dev_dependencies:
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
   flutter_launcher_icons: "^0.14.4"
+  flutter_native_splash: ^2.4.7
 # The following section is specific to Flutter packages.
 flutter:
 
@@ -115,4 +116,21 @@ flutter_launcher_icons:
   image_path_ios_dark_transparent: "assets/icons/icon-dark.png"
   remove_alpha_ios: true
   remove_alpha_channel_ios: true
+  desaturate_tinted_to_grayscale_ios: true
   image_path_ios_tinted_grayscale: "assets/icons/icon-dark.png"
+
+flutter_native_splash:
+  color: "#8fef9f"
+  color_dark: "#20602a"
+  # png file and should be sized for 4x pixel density.
+  image:                assets/images/rzi-light.png
+  image_dark:           assets/images/rzi-dark.png
+  # hide notif bar on android. ios already hides it by default. 
+  # Has no effect in web since web has no notification bar.
+  fullscreen: true                # default false
+  android_12:
+    # background color
+    color: "#8fef9f"
+    color_dark: "#20602a"
+    image: assets/images/rzi-light.png
+    image_dark: assets/images/rzi-dark.png
