@@ -76,6 +76,7 @@ class _BookPageState extends State<BookPage> {
           return ChapterCard(
             bookId: widget.book.id,
             chapter: chapter,
+            allChapters: widget.book.chapters,
             isEnglishVisible: _isEnglishVisible,
             isTestingMode: _isTestingMode,
           );

@@ -8,12 +8,54 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   Stream<Duration> get onPositionChanged => _audioPlayer.onPositionChanged;
 
+  Duration? _loopStart;
+  Duration? _loopEnd;
+  bool _autoLoop = true;
+
+  @override
+  Future<void> stop() => _audioPlayer.stop();
+
+  @override
+  Future<void> setSpeed(double speed) async {
+    await _audioPlayer.setPlaybackRate(speed);
+    _broadcastState();
+  }
+
+  void setLoopRange(Duration? start, Duration? end, {bool autoLoop = true}) {
+    _loopStart = start;
+    _loopEnd = end;
+    _autoLoop = autoLoop;
+  }
+
   AudioPlayerHandler() {
     // Listen to playback state events from the audio player
     _audioPlayer.onPlayerStateChanged.listen(_propagatePlayerState);
     _audioPlayer.onPositionChanged.listen((position) {
       _currentPosition = position;
       _broadcastState();
+
+      // Handle Looping
+      if (_loopEnd != null && position >= _loopEnd!) {
+        if (_autoLoop) {
+          seek(_loopStart ?? Duration.zero);
+        } else {
+          // End of clip reached (for cross-chapter ending)
+          // Treat as completion
+          pause();
+          seek(_loopEnd!); // Visual feedback
+          playbackState.add(
+            playbackState.value.copyWith(
+              processingState: AudioProcessingState.completed,
+            ),
+          );
+        }
+      } else if (_loopStart != null && position < _loopStart!) {
+        // Generally enforce start boundary if strictly clipping
+        // But usually we just seek there initially.
+        // If user seeks backwards, maybe we let them?
+        // For now, let's enforce simple seeking to start if autoLoop is on.
+        if (_autoLoop) seek(_loopStart!);
+      }
     });
     _audioPlayer.onDurationChanged.listen((duration) {
       final item = mediaItem.value;
@@ -76,9 +118,6 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   @override
   Future<void> seek(Duration position) => _audioPlayer.seek(position);
-
-  @override
-  Future<void> stop() => _audioPlayer.stop();
 
   Future<void> playFromFile(String filePath, MediaItem item) async {
     mediaItem.add(item);

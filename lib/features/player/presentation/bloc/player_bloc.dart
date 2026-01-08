@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -7,6 +8,7 @@ import 'package:rzi_hifdhapp/features/player/presentation/bloc/player_state.dart
 import 'package:rzi_hifdhapp/features/player/services/audio_handler.dart';
 import 'package:talker_flutter/talker_flutter.dart';
 import 'package:rzi_hifdhapp/core/di/injection_container.dart';
+import 'package:rzi_hifdhapp/features/book/domain/entities/chapter.dart';
 
 final talker = sl<Talker>();
 
@@ -20,7 +22,35 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
     return const Stream.empty();
   }
 
-  PlayerBloc({required this.audioHandler}) : super(PlayerInitial()) {
+  StreamSubscription? _playbackStateSub;
+
+  PlayerBloc({required this.audioHandler}) : super(const PlayerState()) {
+    // Listen to playback state to detect completion and syncing
+    _playbackStateSub = audioHandler.playbackState.listen((state) {
+      if (state.processingState == AudioProcessingState.completed) {
+        add(InternalPlaybackCompleteEvent());
+      }
+
+      // Sync playing status (Notification -> App)
+      final isPlaying = state.playing;
+      final derivedStatus = isPlaying
+          ? PlayerStatus.playing
+          : (state.processingState == AudioProcessingState.idle
+                ? PlayerStatus.stopped
+                : PlayerStatus.paused);
+
+      // Only add event if status is actually different to avoid loops/noise
+      // We can't easily access 'current bloc state' inside this callback without a capture,
+      // but 'add' is safe. The bloc handler can check equality.
+      add(SyncPlayerStatusEvent(derivedStatus));
+    });
+
+    on<SyncPlayerStatusEvent>((event, emit) {
+      if (state.status != event.status) {
+        emit(state.copyWith(status: event.status));
+      }
+    });
+
     on<PlayEvent>((event, emit) async {
       talker.debug('▶️ PlayEvent triggered for ${event.chapter.name}');
       final appDir = await getApplicationDocumentsDirectory();
@@ -36,19 +66,117 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
           id: audioPath,
           album: event.bookName,
           title: event.chapter.name,
-          // You could add duration if known, or artUri
         );
 
         if (audioHandler is AudioPlayerHandler) {
-          await (audioHandler as AudioPlayerHandler).playFromFile(
-            audioPath,
-            mediaItem,
-          );
+          final handler = audioHandler as AudioPlayerHandler;
+          await handler.playFromFile(audioPath, mediaItem);
+          // Apply current speed setting
+          await handler.setSpeed(state.speed);
+
+          // Apply Loop Constraints
+          if (state.loopMode == LoopMode.range) {
+            _applyLoopConstraints(
+              audioHandler,
+              event.chapter,
+              state.loopStartChapterId ?? '',
+              state.loopStartLine ?? 0,
+              state.loopEndChapterId ?? '',
+              state.loopEndLine ?? 0,
+            );
+          } else {
+            handler.setLoopRange(null, null);
+          }
         }
 
-        emit(PlayerPlaying(chapter: event.chapter));
+        emit(
+          state.copyWith(
+            status: PlayerStatus.playing,
+            chapter: event.chapter,
+            playlist: event.playlist ?? state.playlist,
+            bookId: event.bookName,
+          ),
+        );
       } else {
         talker.warning('❌ Audio file missing!');
+      }
+    });
+
+    on<InternalPlaybackCompleteEvent>((event, emit) async {
+      if (state.loopMode == LoopMode.chapter) {
+        // Replay current chapter
+        if (state.chapter != null && state.bookId != null) {
+          add(PlayEvent(bookName: state.bookId!, chapter: state.chapter!));
+        }
+      } else if (state.loopMode == LoopMode.range) {
+        // Check if we finished the END chapter
+        if (state.chapter?.id.toString() == state.loopEndChapterId) {
+          // Finished loop cycle -> Jump to Start
+          final startChapter = state.playlist.firstWhere(
+            (c) => c.id.toString() == state.loopStartChapterId,
+            orElse: () => state.chapter!,
+          );
+
+          // Play Start Chapter
+          add(PlayEvent(bookName: state.bookId ?? '', chapter: startChapter));
+
+          // We need to seek to start line.
+          // PlayEvent is async... we can't easily wait here.
+          // Dispatching a SeekEvent immediately might fail if Play hasn't initialized.
+          // Solution: Trigger PlayFromPosition?
+          // Yes, PlayFromPosition is cleaner.
+          final startLine = state.loopStartLine ?? 0;
+          if (startLine < startChapter.audioLines.length) {
+            final pos = Duration(
+              milliseconds: (startChapter.audioLines[startLine].start * 1000)
+                  .toInt(),
+            );
+            // Override: use PlayFromPositionEvent
+            // Note: PlayFromPositionEvent logic also needs to apply loop constraints!
+            // Let's rely on PlayFromPositionEvent and update it to apply constraints too.
+            add(
+              PlayFromPositionEvent(
+                bookName: state.bookId ?? '',
+                chapter: startChapter,
+                position: pos,
+              ),
+            );
+            return; // Done
+          }
+        } else {
+          // In Start or Middle chapter -> Auto Advance
+          if (state.playlist.isNotEmpty && state.chapter != null) {
+            final currentIndex = state.playlist.indexWhere(
+              (c) => c.id == state.chapter!.id,
+            );
+            if (currentIndex != -1 &&
+                currentIndex < state.playlist.length - 1) {
+              final nextChapter = state.playlist[currentIndex + 1];
+              if (state.bookId != null) {
+                add(PlayEvent(bookName: state.bookId!, chapter: nextChapter));
+              }
+            } else {
+              emit(state.copyWith(status: PlayerStatus.stopped));
+            }
+          }
+        }
+      } else {
+        // Auto-advance logic (Loop Off)
+        if (state.playlist.isNotEmpty && state.chapter != null) {
+          final currentIndex = state.playlist.indexWhere(
+            (c) => c.id == state.chapter!.id,
+          );
+          if (currentIndex != -1 && currentIndex < state.playlist.length - 1) {
+            final nextChapter = state.playlist[currentIndex + 1];
+            if (state.bookId != null) {
+              add(PlayEvent(bookName: state.bookId!, chapter: nextChapter));
+            }
+          } else {
+            emit(state.copyWith(status: PlayerStatus.stopped));
+          }
+        } else {
+          emit(state.copyWith(status: PlayerStatus.stopped));
+        }
       }
     });
 
@@ -70,17 +198,35 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
         );
 
         if (audioHandler is AudioPlayerHandler) {
-          await (audioHandler as AudioPlayerHandler).playFromFile(
-            audioPath,
-            mediaItem,
-          );
-          // Brief delay to allow load
+          final handler = audioHandler as AudioPlayerHandler;
+          await handler.playFromFile(audioPath, mediaItem);
+          await handler.setSpeed(state.speed);
+
+          if (state.loopMode == LoopMode.range) {
+            _applyLoopConstraints(
+              audioHandler,
+              event.chapter,
+              state.loopStartChapterId ?? '',
+              state.loopStartLine ?? 0,
+              state.loopEndChapterId ?? '',
+              state.loopEndLine ?? 0,
+            );
+          } else {
+            handler.setLoopRange(null, null);
+          }
+
           await Future.delayed(const Duration(milliseconds: 100));
           talker.debug('⏩ Seeking to position');
-          await audioHandler.seek(event.position);
+          await handler.seek(event.position);
         }
 
-        emit(PlayerPlaying(chapter: event.chapter));
+        emit(
+          state.copyWith(
+            status: PlayerStatus.playing,
+            chapter: event.chapter,
+            bookId: event.bookName,
+          ),
+        );
       } else {
         talker.warning('❌ Audio file not found: $audioPath');
       }
@@ -88,19 +234,140 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
 
     on<PauseEvent>((event, emit) async {
       await audioHandler.pause();
-      if (state is PlayerPlaying) {
-        emit(PlayerPaused(chapter: (state as PlayerPlaying).chapter));
+      if (state.status == PlayerStatus.playing) {
+        emit(state.copyWith(status: PlayerStatus.paused));
       }
     });
 
     on<StopEvent>((event, emit) async {
       await audioHandler.stop();
-      emit(PlayerStopped());
+      emit(state.copyWith(status: PlayerStatus.stopped));
     });
 
     on<SeekEvent>((event, emit) async {
       talker.debug('⏩ SeekEvent to ${event.position.inSeconds}s');
       await audioHandler.seek(event.position);
     });
+
+    on<SetSpeedEvent>((event, emit) async {
+      talker.debug('⏩ Set Speed to ${event.speed}x');
+      if (audioHandler is AudioPlayerHandler) {
+        await (audioHandler as AudioPlayerHandler).setSpeed(event.speed);
+      }
+      emit(state.copyWith(speed: event.speed));
+    });
+
+    on<SetLoopRangeEvent>((event, emit) {
+      if (state.chapter == null) return;
+
+      final startLine = event.startLine;
+      final endLine = event.endLine;
+      final startChapterId =
+          event.startChapterId ?? state.chapter!.id.toString();
+      final endChapterId = event.endChapterId ?? state.chapter!.id.toString();
+
+      // Calculate times using the chapters from the playlist if valid
+      // We need to access the actual chapter objects to get audioLines.
+      // Use state.playlist to find them.
+
+      emit(
+        state.copyWith(
+          loopMode: LoopMode.range,
+          loopStartLine: startLine,
+          loopEndLine: endLine,
+          loopStartChapterId: startChapterId,
+          loopEndChapterId: endChapterId,
+        ),
+      );
+
+      // If currently playing one of these checks, update handler imediately
+      if (state.chapter != null) {
+        _applyLoopConstraints(
+          audioHandler,
+          state.chapter!,
+          startChapterId,
+          startLine,
+          endChapterId,
+          endLine,
+        );
+      }
+    });
+
+    on<SetLoopModeEvent>((event, emit) {
+      talker.debug('🔁 Set Loop Mode to ${event.loopMode}');
+
+      if (audioHandler is AudioPlayerHandler) {
+        final handler = audioHandler as AudioPlayerHandler;
+        if (event.loopMode == LoopMode.off ||
+            event.loopMode == LoopMode.chapter) {
+          handler.setLoopRange(null, null);
+        } else if (event.loopMode == LoopMode.line) {
+          handler.setLoopRange(null, null);
+        }
+      }
+
+      emit(state.copyWith(loopMode: event.loopMode));
+    });
+  }
+
+  void _applyLoopConstraints(
+    AudioHandler handler,
+    Chapter currentChapter,
+    String startId,
+    int startLine,
+    String endId,
+    int endLine,
+  ) {
+    if (handler is! AudioPlayerHandler) return;
+    final player = handler;
+
+    Duration? startTime;
+    Duration? endTime;
+    bool autoLoop = false;
+
+    // Same chapter loop
+    if (startId == endId && currentChapter.id.toString() == startId) {
+      // Standard loop
+      if (startLine >= 0 && startLine < currentChapter.audioLines.length) {
+        startTime = Duration(
+          milliseconds: (currentChapter.audioLines[startLine].start * 1000)
+              .toInt(),
+        );
+      }
+      if (endLine >= 0 && endLine < currentChapter.audioLines.length) {
+        endTime = Duration(
+          milliseconds: (currentChapter.audioLines[endLine].end * 1000).toInt(),
+        );
+      }
+      autoLoop = true;
+    } else {
+      // Cross chapter
+      if (currentChapter.id.toString() == startId) {
+        if (startLine >= 0 && startLine < currentChapter.audioLines.length) {
+          startTime = Duration(
+            milliseconds: (currentChapter.audioLines[startLine].start * 1000)
+                .toInt(),
+          );
+        }
+      }
+
+      if (currentChapter.id.toString() == endId) {
+        if (endLine >= 0 && endLine < currentChapter.audioLines.length) {
+          endTime = Duration(
+            milliseconds: (currentChapter.audioLines[endLine].end * 1000)
+                .toInt(),
+          );
+        }
+      }
+      autoLoop = false; // Let Bloc handle the jump
+    }
+
+    player.setLoopRange(startTime, endTime, autoLoop: autoLoop);
+  }
+
+  @override
+  Future<void> close() {
+    _playbackStateSub?.cancel();
+    return super.close();
   }
 }

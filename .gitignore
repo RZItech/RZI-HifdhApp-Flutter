@@ -45,4 +45,4 @@ app.*.map.json
 /android/app/release
 
 # Speech-to-Text models
-/assets/models/vosk_arabic/*
+.agent/rules/myrules.md

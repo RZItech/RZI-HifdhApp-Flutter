@@ -17,6 +17,7 @@ enum LineState { neutral, listening, correct, incorrect, failed }
 class ChapterCard extends StatefulWidget {
   final String bookId;
   final Chapter chapter;
+  final List<Chapter> allChapters;
   final bool isEnglishVisible;
   final bool isTestingMode;
 
@@ -24,6 +25,7 @@ class ChapterCard extends StatefulWidget {
     super.key,
     required this.bookId,
     required this.chapter,
+    this.allChapters = const [],
     required this.isEnglishVisible,
     required this.isTestingMode,
   });
@@ -276,8 +278,8 @@ class _ChapterCardState extends State<ChapterCard> {
       final playerState = context.read<PlayerBloc>().state;
 
       // Use PlayFromPositionEvent to handle both playing and seeking
-      if (playerState is PlayerPlaying &&
-          playerState.chapter.id == widget.chapter.id) {
+      if (playerState.status == PlayerStatus.playing &&
+          playerState.chapter?.id == widget.chapter.id) {
         talker.debug('▶️ Already playing, sending SeekEvent');
         // Already playing this chapter, just seek
         context.read<PlayerBloc>().add(
@@ -382,6 +384,59 @@ class _ChapterCardState extends State<ChapterCard> {
     }
 
     return InkWell(
+      onLongPress: () {
+        showModalBottomSheet(
+          context: context,
+          builder: (ctx) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Verse ${index + 1} Options',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    leading: const Icon(Icons.play_arrow),
+                    title: const Text('Play from here'),
+                    onTap: () {
+                      if (widget.chapter.audioLines.isNotEmpty &&
+                          index < widget.chapter.audioLines.length) {
+                        _seekToLine(index);
+                      }
+                      Navigator.pop(ctx);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.repeat),
+                    title: const Text('Loop this verse'),
+                    onTap: () {
+                      context.read<PlayerBloc>().add(
+                        SetLoopRangeEvent(startLine: index, endLine: index),
+                      );
+                      Navigator.pop(ctx);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.linear_scale),
+                    title: const Text('Loop starting here...'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      // Pre-fill start, ask for end
+                      _showCustomRangePickerInitial(index);
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
       onTap: widget.isTestingMode
           ? () => _startListeningForLine(index)
           : (widget.chapter.audioLines.isNotEmpty &&
@@ -452,26 +507,369 @@ class _ChapterCardState extends State<ChapterCard> {
     );
   }
 
+  void _showLoopMenu() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Loop Mode',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.repeat, color: Colors.grey),
+                title: const Text('Loop Off'),
+                onTap: () {
+                  context.read<PlayerBloc>().add(
+                    const SetLoopModeEvent(loopMode: LoopMode.off),
+                  );
+                  Navigator.pop(ctx);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.repeat_one),
+                title: const Text('Loop Chapter'),
+                onTap: () {
+                  context.read<PlayerBloc>().add(
+                    const SetLoopModeEvent(loopMode: LoopMode.chapter),
+                  );
+                  Navigator.pop(ctx);
+                },
+              ),
+              if (_currentPlayingLine != null &&
+                  _currentPlayingLine! < widget.chapter.audioLines.length)
+                ListTile(
+                  leading: const Icon(Icons.graphic_eq),
+                  title: Text(
+                    'Loop Current Verse (${_currentPlayingLine! + 1})',
+                  ),
+                  onTap: () {
+                    context.read<PlayerBloc>().add(
+                      SetLoopRangeEvent(
+                        startLine: _currentPlayingLine!,
+                        endLine: _currentPlayingLine!,
+                      ),
+                    );
+                    // SetLoopRange sets mode to Range
+                    Navigator.pop(ctx);
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.linear_scale),
+                title: const Text('Custom Range'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showCustomRangePicker();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showCustomRangePicker() {
+    // Simple dialog for picking start/end line
+    int start = 0;
+    int end = widget.chapter.audioLines.length - 1;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Select Loop Range'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Enter Verse Numbers (1-${widget.chapter.audioLines.length})',
+              ),
+              TextField(
+                decoration: const InputDecoration(labelText: 'Start Verse'),
+                keyboardType: TextInputType.number,
+                onChanged: (v) {
+                  final val = int.tryParse(v);
+                  if (val != null && val > 0) start = val - 1;
+                },
+              ),
+              TextField(
+                decoration: const InputDecoration(labelText: 'End Verse'),
+                keyboardType: TextInputType.number,
+                onChanged: (v) {
+                  final val = int.tryParse(v);
+                  if (val != null && val > 0) end = val - 1;
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () => Navigator.pop(ctx),
+            ),
+            ElevatedButton(
+              child: const Text('Loop'),
+              onPressed: () {
+                if (start <= end &&
+                    start >= 0 &&
+                    end < widget.chapter.audioLines.length) {
+                  context.read<PlayerBloc>().add(
+                    SetLoopRangeEvent(startLine: start, endLine: end),
+                  );
+                }
+                Navigator.pop(ctx);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showCustomRangePickerInitial(int initialStart) {
+    int startLine = initialStart;
+    Chapter startChapter = widget.chapter;
+
+    // Default End to current chapter end
+    Chapter endChapter = widget.chapter;
+    int endLine = widget.chapter.audioLines.length - 1;
+
+    // Controller for the wheel
+    final FixedExtentScrollController scrollController =
+        FixedExtentScrollController(initialItem: endLine);
+
+    // Filter valid chapters (starting from current one onwards)
+    final validChapters = widget.allChapters.isNotEmpty
+        ? widget.allChapters.skipWhile((c) => c.id != startChapter.id).toList()
+        : [widget.chapter];
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        // Use StatefulBuilder to handle dropdown state updates within Dialog
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Select Loop Range'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Start: ${startChapter.name} - Verse ${startLine + 1}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('End Position:'),
+                    if (widget.allChapters.isNotEmpty)
+                      DropdownButton<Chapter>(
+                        isExpanded: true,
+                        value: validChapters.contains(endChapter)
+                            ? endChapter
+                            : validChapters.first,
+                        items: validChapters.map((c) {
+                          return DropdownMenuItem(
+                            value: c,
+                            child: Text(
+                              c.name,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() {
+                              endChapter = val;
+                              // Reset end line to end of new chapter or default 0?
+                              // Usually 0 or last. Let's default to last line for convenience?
+                              // Or 1st line? Let's default to 1st line to force user to scroll?
+                              // Or last line as requested implies "loop until here".
+                              // If I switch chapter, I probably want to loop a chunk.
+                              // Let's reset to 0 (verse 1) to be safe, easier to scroll down.
+                              endLine = 0;
+                              scrollController.jumpToItem(0);
+                            });
+                          }
+                        },
+                      ),
+
+                    // Helper to display current selection visual
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        'End Verse: ${endLine + 1}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(
+                      height: 150,
+                      child: ListWheelScrollView.useDelegate(
+                        controller: scrollController,
+                        itemExtent: 40,
+                        physics: const FixedExtentScrollPhysics(),
+                        perspective: 0.005,
+                        onSelectedItemChanged: (index) {
+                          // No setState needed for variables as we read them at end,
+                          // BUT if we want to update the "End Verse: X" text above, we need setState.
+                          // The onChanged callback is outside build, so we can call setState.
+                          setState(() {
+                            endLine = index;
+                          });
+                        },
+                        childDelegate: ListWheelChildBuilderDelegate(
+                          builder: (context, index) {
+                            final isSelected = index == endLine;
+                            final theme = Theme.of(context);
+                            final colorScheme = theme.colorScheme;
+                            final isDark = theme.brightness == Brightness.dark;
+
+                            // Explicit fallback: White for Dark Mode, Black for Light Mode
+                            final unselectedColor = isDark
+                                ? Colors.white.withValues(alpha: 0.5)
+                                : Colors.black.withValues(alpha: 0.5);
+
+                            return Center(
+                              child: Text(
+                                'Verse ${index + 1}',
+                                style: TextStyle(
+                                  fontSize: isSelected ? 20 : 16,
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: isSelected
+                                      ? colorScheme.primary
+                                      : unselectedColor,
+                                ),
+                              ),
+                            );
+                          },
+                          childCount: endChapter.audioLines.length,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  child: const Text('Cancel'),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+                ElevatedButton(
+                  child: const Text('Loop'),
+                  onPressed: () {
+                    // Validate
+                    if (endLine >= 0 &&
+                        endLine < endChapter.audioLines.length) {
+                      // If same chapter, start <= end check
+                      if (startChapter.id == endChapter.id &&
+                          startLine > endLine) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('End verse must be after start!'),
+                          ),
+                        );
+                        return;
+                      }
+
+                      context.read<PlayerBloc>().add(
+                        SetLoopRangeEvent(
+                          startLine: startLine,
+                          endLine: endLine,
+                          startChapterId: startChapter.id.toString(),
+                          endChapterId: endChapter.id.toString(),
+                        ),
+                      );
+                      Navigator.pop(ctx);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Invalid End Verse!')),
+                      );
+                    }
+                  },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildPlayerControls() {
     return BlocBuilder<PlayerBloc, PlayerState>(
       builder: (context, playerState) {
         bool isPlaying = false;
-        if (playerState is PlayerPlaying &&
-            playerState.chapter.id == widget.chapter.id) {
+        if (playerState.status == PlayerStatus.playing &&
+            playerState.chapter?.id == widget.chapter.id) {
           isPlaying = true;
         }
 
-        return IconButton(
-          icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-          onPressed: () {
-            if (isPlaying) {
-              context.read<PlayerBloc>().add(PauseEvent());
-            } else {
-              context.read<PlayerBloc>().add(
-                PlayEvent(bookName: widget.bookId, chapter: widget.chapter),
-              );
-            }
-          },
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Loop Mode
+            IconButton(
+              icon: Icon(
+                playerState.loopMode == LoopMode.off
+                    ? Icons.repeat
+                    : playerState.loopMode == LoopMode.chapter
+                    ? Icons.repeat_one
+                    : Icons.graphic_eq, // Visual indicator for range/line
+                color: playerState.loopMode == LoopMode.off
+                    ? Colors.grey
+                    : Theme.of(context).primaryColor,
+              ),
+              onPressed: _showLoopMenu, // Updated to show menu
+            ),
+
+            // Play/Pause
+            IconButton(
+              icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+              onPressed: () {
+                if (isPlaying) {
+                  context.read<PlayerBloc>().add(PauseEvent());
+                } else {
+                  context.read<PlayerBloc>().add(
+                    PlayEvent(
+                      bookName: widget.bookId,
+                      chapter: widget.chapter,
+                      playlist: widget.allChapters,
+                    ),
+                  );
+                }
+              },
+            ),
+
+            // Speed
+            TextButton(
+              onPressed: () {
+                final speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+                final currentIndex = speeds.indexOf(playerState.speed);
+                final nextIndex = (currentIndex + 1) % speeds.length;
+                context.read<PlayerBloc>().add(
+                  SetSpeedEvent(speed: speeds[nextIndex]),
+                );
+              },
+              child: Text('${playerState.speed}x'),
+            ),
+          ],
         );
       },
     );

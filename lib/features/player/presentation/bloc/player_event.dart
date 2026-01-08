@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:rzi_hifdhapp/features/book/domain/entities/chapter.dart';
+import 'package:rzi_hifdhapp/features/player/presentation/bloc/player_state.dart';
 
 abstract class PlayerEvent extends Equatable {
   const PlayerEvent();
@@ -11,12 +12,19 @@ abstract class PlayerEvent extends Equatable {
 class PlayEvent extends PlayerEvent {
   final String bookName;
   final Chapter chapter;
+  final List<Chapter>? playlist;
 
-  const PlayEvent({required this.bookName, required this.chapter});
+  const PlayEvent({
+    required this.bookName,
+    required this.chapter,
+    this.playlist,
+  });
 
   @override
-  List<Object> get props => [bookName, chapter];
+  List<Object> get props => [bookName, chapter, playlist ?? []];
 }
+
+class InternalPlaybackCompleteEvent extends PlayerEvent {}
 
 class PlayFromPositionEvent extends PlayerEvent {
   final String bookName;
@@ -44,4 +52,53 @@ class SeekEvent extends PlayerEvent {
 
   @override
   List<Object> get props => [position];
+}
+
+class SetSpeedEvent extends PlayerEvent {
+  final double speed;
+
+  const SetSpeedEvent({required this.speed});
+
+  @override
+  List<Object> get props => [speed];
+}
+
+class SyncPlayerStatusEvent extends PlayerEvent {
+  final PlayerStatus status;
+
+  const SyncPlayerStatusEvent(this.status);
+
+  @override
+  List<Object> get props => [status];
+}
+
+class SetLoopRangeEvent extends PlayerEvent {
+  final int startLine;
+  final int endLine;
+  final String? startChapterId;
+  final String? endChapterId;
+
+  const SetLoopRangeEvent({
+    required this.startLine,
+    required this.endLine,
+    this.startChapterId,
+    this.endChapterId,
+  });
+
+  @override
+  List<Object> get props => [
+    startLine,
+    endLine,
+    startChapterId ?? '',
+    endChapterId ?? '',
+  ];
+}
+
+class SetLoopModeEvent extends PlayerEvent {
+  final LoopMode loopMode;
+
+  const SetLoopModeEvent({required this.loopMode});
+
+  @override
+  List<Object> get props => [loopMode];
 }

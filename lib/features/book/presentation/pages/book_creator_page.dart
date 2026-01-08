@@ -12,18 +12,22 @@ import 'package:rzi_hifdhapp/features/book/data/models/book_model.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_bloc.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_state.dart';
 import 'package:rzi_hifdhapp/features/book/data/models/draft_book.dart';
+import 'package:rzi_hifdhapp/features/book/domain/entities/audio_line_range.dart';
+import 'package:rzi_hifdhapp/features/book/presentation/pages/audio_timing_editor_page.dart';
 
 class CreatorChapter {
   String name;
   String arabic;
   String translation;
   String? audioPath;
+  List<AudioLineRange>? audioLines;
 
   CreatorChapter({
     this.name = '',
     this.arabic = '',
     this.translation = '',
     this.audioPath,
+    this.audioLines,
   });
 }
 
@@ -182,7 +186,7 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
     );
 
     if (selectedBook != null) {
-      _loadBookIntoCreator(selectedBook);
+      await _loadBookIntoCreator(selectedBook);
     }
   }
 
@@ -218,7 +222,7 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
       final bookName = result.files.single.name.replaceAll('.zip', '');
       final book = BookModel.fromYaml(yamlMap, bookName);
 
-      _loadBookIntoCreator(book, extractDir.path);
+      await _loadBookIntoCreator(book, extractDir.path);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -227,7 +231,13 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
     }
   }
 
-  void _loadBookIntoCreator(Book book, [String? audioBasePath]) {
+  Future<void> _loadBookIntoCreator(Book book, [String? audioBasePath]) async {
+    String? libraryBasePath;
+    if (audioBasePath == null) {
+      final appDir = await getApplicationDocumentsDirectory();
+      libraryBasePath = '${appDir.path}/${book.id}';
+    }
+
     setState(() {
       _nameController.text = book.name;
       _chapters.clear();
@@ -239,8 +249,8 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
             // From ZIP import - use extracted path
             audioPath = '$audioBasePath/${chapter.audioPath}';
           } else {
-            // From library - use existing path
-            audioPath = chapter.audioPath;
+            // From library - use constructed path
+            audioPath = '$libraryBasePath/${chapter.audioPath}';
           }
         }
 
@@ -250,6 +260,7 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
             arabic: chapter.arabicText,
             translation: chapter.englishText,
             audioPath: audioPath,
+            audioLines: chapter.audioLines,
           ),
         );
       }
@@ -307,6 +318,16 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
             archive.addFile(
               ArchiveFile(fileName, audioBytes.length, audioBytes),
             );
+
+            // Add Audio Lines if present
+            if (chapter.audioLines != null && chapter.audioLines!.isNotEmpty) {
+              buffer.writeln('  audio_lines: |');
+              for (final range in chapter.audioLines!) {
+                buffer.writeln(
+                  '    ${range.start.toStringAsFixed(3)}>${range.end.toStringAsFixed(3)}',
+                );
+              }
+            }
           } else {
             buffer.writeln('  audio: null');
           }
@@ -441,6 +462,7 @@ class _ChapterEditorPageState extends State<ChapterEditorPage> {
   late TextEditingController _arabicCtrl;
   late TextEditingController _translationCtrl;
   String? _audioPath;
+  List<AudioLineRange>? _audioLines;
 
   @override
   void initState() {
@@ -453,6 +475,7 @@ class _ChapterEditorPageState extends State<ChapterEditorPage> {
       text: widget.initialChapter?.translation ?? '',
     );
     _audioPath = widget.initialChapter?.audioPath;
+    _audioLines = widget.initialChapter?.audioLines;
   }
 
   @override
@@ -468,6 +491,40 @@ class _ChapterEditorPageState extends State<ChapterEditorPage> {
     if (result != null) {
       setState(() {
         _audioPath = result.files.single.path;
+        _audioLines = null;
+      });
+    }
+  }
+
+  void _openTimingEditor() async {
+    if (_audioPath == null) return;
+
+    final lines = _arabicCtrl.text
+        .trim()
+        .split('\n')
+        .where((l) => l.trim().isNotEmpty)
+        .toList();
+    if (lines.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please add Arabic text first')),
+      );
+      return;
+    }
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AudioTimingEditorPage(
+          audioFile: File(_audioPath!),
+          lines: lines,
+          initialRanges: _audioLines,
+        ),
+      ),
+    );
+
+    if (result != null && result is List<AudioLineRange>) {
+      setState(() {
+        _audioLines = result;
       });
     }
   }
@@ -487,6 +544,7 @@ class _ChapterEditorPageState extends State<ChapterEditorPage> {
         arabic: _arabicCtrl.text.trim(),
         translation: _translationCtrl.text.trim(),
         audioPath: _audioPath,
+        audioLines: _audioLines,
       ),
     );
   }
@@ -544,6 +602,17 @@ class _ChapterEditorPageState extends State<ChapterEditorPage> {
             TextButton(
               onPressed: () => setState(() => _audioPath = null),
               child: const Text('Remove Audio'),
+            ),
+          if (_audioPath != null)
+            ListTile(
+              title: const Text('Sync Audio Timings'),
+              subtitle: Text(
+                _audioLines != null
+                    ? '${_audioLines!.length} lines synced'
+                    : 'Not synced',
+              ),
+              trailing: const Icon(Icons.timer),
+              onTap: _openTimingEditor,
             ),
         ],
       ),
