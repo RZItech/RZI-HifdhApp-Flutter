@@ -18,6 +18,21 @@ class PlayEvent extends PlayerEvent {
   List<Object> get props => [bookName, chapter];
 }
 
+class PlayFromPositionEvent extends PlayerEvent {
+  final String bookName;
+  final Chapter chapter;
+  final Duration position;
+
+  const PlayFromPositionEvent({
+    required this.bookName,
+    required this.chapter,
+    required this.position,
+  });
+
+  @override
+  List<Object> get props => [bookName, chapter, position];
+}
+
 class PauseEvent extends PlayerEvent {}
 
 class StopEvent extends PlayerEvent {}

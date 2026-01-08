@@ -22,12 +22,16 @@ class _BookPageState extends State<BookPage> {
   @override
   void initState() {
     super.initState();
-    _speechService.recognizedWordsNotifier.addListener(_onRecognizedWordsChange);
+    _speechService.recognizedWordsNotifier.addListener(
+      _onRecognizedWordsChange,
+    );
   }
 
   @override
   void dispose() {
-    _speechService.recognizedWordsNotifier.removeListener(_onRecognizedWordsChange);
+    _speechService.recognizedWordsNotifier.removeListener(
+      _onRecognizedWordsChange,
+    );
     super.dispose();
   }
 
@@ -70,7 +74,7 @@ class _BookPageState extends State<BookPage> {
         itemBuilder: (context, index) {
           final chapter = widget.book.chapters[index];
           return ChapterCard(
-            bookName: widget.book.name,
+            bookId: widget.book.id,
             chapter: chapter,
             isEnglishVisible: _isEnglishVisible,
             isTestingMode: _isTestingMode,

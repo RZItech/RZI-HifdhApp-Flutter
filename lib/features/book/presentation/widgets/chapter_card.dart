@@ -10,17 +10,19 @@ import 'package:rzi_hifdhapp/features/player/presentation/bloc/player_bloc.dart'
 import 'package:rzi_hifdhapp/features/player/presentation/bloc/player_event.dart';
 import 'package:rzi_hifdhapp/features/player/presentation/bloc/player_state.dart';
 
+final talker = sl<Talker>();
+
 enum LineState { neutral, listening, correct, incorrect, failed }
 
 class ChapterCard extends StatefulWidget {
-  final String bookName;
+  final String bookId;
   final Chapter chapter;
   final bool isEnglishVisible;
   final bool isTestingMode;
 
   const ChapterCard({
     super.key,
-    required this.bookName,
+    required this.bookId,
     required this.chapter,
     required this.isEnglishVisible,
     required this.isTestingMode,
@@ -57,9 +59,10 @@ class _ChapterCardState extends State<ChapterCard> {
 
     // Listen to audio position for Player Mode
     if (!widget.isTestingMode) {
-      context.read<PlayerBloc>().audioPlayer.onPositionChanged.listen((
-        position,
-      ) {
+      talker.debug(
+        '🎧 Player Mode: audioLines count = ${widget.chapter.audioLines.length}',
+      );
+      context.read<PlayerBloc>().positionStream.listen((position) {
         if (mounted && widget.chapter.audioLines.isNotEmpty) {
           _updateCurrentPlayingLine(position.inSeconds.toDouble());
         }
@@ -265,17 +268,38 @@ class _ChapterCardState extends State<ChapterCard> {
   }
 
   void _seekToLine(int lineIndex) {
+    talker.debug('👆 Tapped line $lineIndex');
     if (lineIndex < widget.chapter.audioLines.length) {
       final range = widget.chapter.audioLines[lineIndex];
-      context.read<PlayerBloc>().add(SeekEvent(
-        position: Duration(milliseconds: (range.start * 1000).toInt()),
-      ));
+      talker.debug('🎯 Seeking to: ${range.start}s');
+
       final playerState = context.read<PlayerBloc>().state;
-      if (playerState is! PlayerPlaying) {
+
+      // Use PlayFromPositionEvent to handle both playing and seeking
+      if (playerState is PlayerPlaying &&
+          playerState.chapter.id == widget.chapter.id) {
+        talker.debug('▶️ Already playing, sending SeekEvent');
+        // Already playing this chapter, just seek
         context.read<PlayerBloc>().add(
-          PlayEvent(bookName: widget.bookName, chapter: widget.chapter),
+          SeekEvent(
+            position: Duration(milliseconds: (range.start * 1000).toInt()),
+          ),
+        );
+      } else {
+        talker.debug(
+          '⏯️ Not playing (or different chapter), sending PlayFromPositionEvent',
+        );
+        // Start playing from this position
+        context.read<PlayerBloc>().add(
+          PlayFromPositionEvent(
+            bookName: widget.bookId,
+            chapter: widget.chapter,
+            position: Duration(milliseconds: (range.start * 1000).toInt()),
+          ),
         );
       }
+    } else {
+      talker.warning('⚠️ Line index $lineIndex out of bounds');
     }
   }
 
@@ -360,9 +384,10 @@ class _ChapterCardState extends State<ChapterCard> {
     return InkWell(
       onTap: widget.isTestingMode
           ? () => _startListeningForLine(index)
-          : (widget.chapter.audioLines.isNotEmpty && index < widget.chapter.audioLines.length)
-              ? () => _seekToLine(index)
-              : null,
+          : (widget.chapter.audioLines.isNotEmpty &&
+                index < widget.chapter.audioLines.length)
+          ? () => _seekToLine(index)
+          : null,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
         margin: const EdgeInsets.only(bottom: 4),
@@ -443,7 +468,7 @@ class _ChapterCardState extends State<ChapterCard> {
               context.read<PlayerBloc>().add(PauseEvent());
             } else {
               context.read<PlayerBloc>().add(
-                PlayEvent(bookName: widget.bookName, chapter: widget.chapter),
+                PlayEvent(bookName: widget.bookId, chapter: widget.chapter),
               );
             }
           },
