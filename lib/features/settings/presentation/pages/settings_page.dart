@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rzi_hifdhapp/features/settings/data/models/theme_mode_preference.dart';
 import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_cubit.dart';
 import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_state.dart';
+import 'package:rzi_hifdhapp/features/settings/presentation/pages/book_reminders_page.dart';
 import 'package:talker_flutter/talker_flutter.dart';
 import 'package:rzi_hifdhapp/core/di/injection_container.dart' as di;
 
@@ -15,6 +16,29 @@ class SettingsPage extends StatelessWidget {
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         children: [
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text(
+              'General',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+          ),
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: ListTile(
+              title: const Text('Book Reminders'),
+              subtitle: const Text('Schedule periodic reminders to learn'),
+              leading: const Icon(Icons.notifications_active),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const BookRemindersPage(),
+                  ),
+                );
+              },
+            ),
+          ),
           const Padding(
             padding: EdgeInsets.all(16.0),
             child: Text(

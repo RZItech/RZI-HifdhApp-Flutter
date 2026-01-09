@@ -42,6 +42,8 @@ class _AudioTimingEditorPageState extends State<AudioTimingEditorPage> {
   StreamSubscription? _stateSub;
   StreamSubscription? _durSub;
 
+  bool _isDraggingSlider = false;
+
   @override
   void initState() {
     super.initState();
@@ -59,13 +61,13 @@ class _AudioTimingEditorPageState extends State<AudioTimingEditorPage> {
     _setupPlayer();
   }
 
-  void _setupPlayer() {
+  void _setupPlayer() async {
     _stateSub = _player.onPlayerStateChanged.listen((state) {
       if (mounted) setState(() => _playerState = state);
     });
 
     _posSub = _player.onPositionChanged.listen((pos) {
-      if (mounted) {
+      if (mounted && !_isDraggingSlider) {
         setState(() => _position = pos);
         _updateActiveLine(pos);
       }
@@ -76,15 +78,18 @@ class _AudioTimingEditorPageState extends State<AudioTimingEditorPage> {
     });
 
     if (!widget.audioFile.existsSync()) {
-      talker.debug('❌ Audio file does not exist: ${widget.audioFile.path}');
+      talker.warning('❌ Audio file does not exist: ${widget.audioFile.path}');
     } else {
       talker.debug('✅ Audio file exists: ${widget.audioFile.path}');
+      try {
+        await _player.setSource(DeviceFileSource(widget.audioFile.path));
+      } catch (e) {
+        talker.error('❌ Error setting player source: $e');
+        // Fallback to UrlSource if DeviceFileSource fails
+        final uri = Uri.file(widget.audioFile.path);
+        await _player.setSource(UrlSource(uri.toString()));
+      }
     }
-
-    // On iOS, DeviceFileSource sometimes fails with spaces or encoding.
-    // Use UrlSource with file URI for robust handling.
-    final uri = Uri.file(widget.audioFile.path);
-    _player.setSource(UrlSource(uri.toString()));
   }
 
   void _updateActiveLine(Duration pos) {
@@ -110,13 +115,10 @@ class _AudioTimingEditorPageState extends State<AudioTimingEditorPage> {
     if (_playerState == PlayerState.playing) {
       await _player.pause();
     } else {
-      if (_playerState == PlayerState.stopped ||
-          _playerState == PlayerState.completed) {
-        final uri = Uri.file(widget.audioFile.path);
-        await _player.play(UrlSource(uri.toString()));
-      } else {
-        await _player.resume();
+      if (_playerState == PlayerState.completed) {
+        await _player.seek(Duration.zero);
       }
+      await _player.resume();
     }
   }
 
@@ -230,13 +232,19 @@ class _AudioTimingEditorPageState extends State<AudioTimingEditorPage> {
                           _duration.inMilliseconds.toDouble(),
                         ),
                         max: _duration.inMilliseconds.toDouble(),
+                        onChangeStart: (val) {
+                          setState(() => _isDraggingSlider = true);
+                        },
                         onChanged: (val) {
-                          _player.seek(Duration(milliseconds: val.toInt()));
-                          // If user seeks manually, reset current line index search?
-                          // For simplicity, we assume linear recording.
-                          // But seeking enables re-recording from a point.
-                          // We should find the line at this time and set _currentLineIndex to it.
-                          // ... (omitted for MVP simplicity)
+                          setState(() {
+                            _position = Duration(milliseconds: val.toInt());
+                          });
+                        },
+                        onChangeEnd: (val) async {
+                          await _player.seek(
+                            Duration(milliseconds: val.toInt()),
+                          );
+                          setState(() => _isDraggingSlider = false);
                         },
                       ),
                     ),

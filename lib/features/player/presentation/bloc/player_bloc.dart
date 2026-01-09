@@ -197,19 +197,36 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
           title: event.chapter.name,
         );
 
+        // Update loop state if provided
+        LoopMode currentLoopMode = state.loopMode;
+        int? currentStartLine = state.loopStartLine;
+        int? currentEndLine = state.loopEndLine;
+        String? currentStartChapterId = state.loopStartChapterId;
+        String? currentEndChapterId = state.loopEndChapterId;
+
+        if (event.loopStartLine != null && event.loopEndLine != null) {
+          currentLoopMode = LoopMode.range;
+          currentStartLine = event.loopStartLine;
+          currentEndLine = event.loopEndLine;
+          currentStartChapterId =
+              event.startChapterId ?? event.chapter.id.toString();
+          currentEndChapterId =
+              event.endChapterId ?? event.chapter.id.toString();
+        }
+
         if (audioHandler is AudioPlayerHandler) {
           final handler = audioHandler as AudioPlayerHandler;
           await handler.playFromFile(audioPath, mediaItem);
           await handler.setSpeed(state.speed);
 
-          if (state.loopMode == LoopMode.range) {
+          if (currentLoopMode == LoopMode.range) {
             _applyLoopConstraints(
               audioHandler,
               event.chapter,
-              state.loopStartChapterId ?? '',
-              state.loopStartLine ?? 0,
-              state.loopEndChapterId ?? '',
-              state.loopEndLine ?? 0,
+              currentStartChapterId ?? '',
+              currentStartLine ?? 0,
+              currentEndChapterId ?? '',
+              currentEndLine ?? 0,
             );
           } else {
             handler.setLoopRange(null, null);
@@ -225,6 +242,11 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
             status: PlayerStatus.playing,
             chapter: event.chapter,
             bookId: event.bookName,
+            loopMode: currentLoopMode,
+            loopStartLine: currentStartLine,
+            loopEndLine: currentEndLine,
+            loopStartChapterId: currentStartChapterId,
+            loopEndChapterId: currentEndChapterId,
           ),
         );
       } else {

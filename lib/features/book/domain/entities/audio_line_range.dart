@@ -18,6 +18,13 @@ class AudioLineRange extends Equatable {
     return AudioLineRange(start: start, end: end);
   }
 
+  factory AudioLineRange.fromJson(Map<String, dynamic> json) => AudioLineRange(
+    start: (json['start'] as num).toDouble(),
+    end: (json['end'] as num).toDouble(),
+  );
+
+  Map<String, dynamic> toJson() => {'start': start, 'end': end};
+
   @override
   List<Object?> get props => [start, end];
 }

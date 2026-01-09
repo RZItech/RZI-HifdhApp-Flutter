@@ -13,6 +13,7 @@ import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_bloc.dart';
 import 'package:rzi_hifdhapp/features/player/presentation/bloc/player_bloc.dart';
 import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_cubit.dart';
 import 'package:rzi_hifdhapp/features/player/services/audio_handler.dart';
+import 'package:rzi_hifdhapp/features/settings/data/repositories/reminder_repository.dart';
 
 final sl = GetIt.instance;
 
@@ -44,6 +45,7 @@ Future<void> init() async {
   sl.registerLazySingleton<BookRepository>(
     () => BookRepositoryImpl(localDataSource: sl()),
   );
+  sl.registerLazySingleton(() => ReminderRepository(sl()));
 
   // Data sources
   sl.registerLazySingleton<BookLocalDataSource>(
@@ -54,6 +56,8 @@ Future<void> init() async {
   sl.registerLazySingleton(() => SpeechService());
 
   // External
+  final sharedPreferences = await SharedPreferences.getInstance();
+  sl.registerLazySingleton(() => sharedPreferences);
   sl.registerLazySingleton(() => SharedPreferencesAsync());
 
   // Logging

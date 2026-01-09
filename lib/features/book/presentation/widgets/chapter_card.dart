@@ -416,8 +416,24 @@ class _ChapterCardState extends State<ChapterCard> {
                     leading: const Icon(Icons.repeat),
                     title: const Text('Loop this verse'),
                     onTap: () {
+                      // Using PlayFromPositionEvent ensures playback starts AND loop is applied
+                      // atomically, avoiding race conditions if player was stopped.
+                      final startTime = Duration(
+                        milliseconds:
+                            (widget.chapter.audioLines[index].start * 1000)
+                                .toInt(),
+                      );
+
                       context.read<PlayerBloc>().add(
-                        SetLoopRangeEvent(startLine: index, endLine: index),
+                        PlayFromPositionEvent(
+                          bookName: widget.bookId,
+                          chapter: widget.chapter,
+                          position: startTime,
+                          loopStartLine: index,
+                          loopEndLine: index,
+                          startChapterId: widget.chapter.id.toString(),
+                          endChapterId: widget.chapter.id.toString(),
+                        ),
                       );
                       Navigator.pop(ctx);
                     },
@@ -788,10 +804,24 @@ class _ChapterCardState extends State<ChapterCard> {
                         return;
                       }
 
+                      // If loop is set but audio not started, PlayFromPosition ensures it plays correctly.
+                      // We dispatch PlayFromPosition first to set the Chapter in state.
+                      // Then SetLoopRangeEvent applies the constraints.
+
+                      // Calculate start position
+                      final startTime = Duration(
+                        milliseconds:
+                            (startChapter.audioLines[startLine].start * 1000)
+                                .toInt(),
+                      );
+
                       context.read<PlayerBloc>().add(
-                        SetLoopRangeEvent(
-                          startLine: startLine,
-                          endLine: endLine,
+                        PlayFromPositionEvent(
+                          bookName: widget.bookId,
+                          chapter: startChapter,
+                          position: startTime,
+                          loopStartLine: startLine,
+                          loopEndLine: endLine,
                           startChapterId: startChapter.id.toString(),
                           endChapterId: endChapter.id.toString(),
                         ),

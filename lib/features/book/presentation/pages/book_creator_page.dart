@@ -57,6 +57,7 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
             arabic: c.arabic,
             translation: c.translation,
             audioPath: c.audioPath,
+            audioLines: c.audioLines,
           ),
         ),
       );
@@ -76,6 +77,7 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
               arabic: c.arabic,
               translation: c.translation,
               audioPath: c.audioPath,
+              audioLines: c.audioLines,
             ),
           )
           .toList(),
@@ -93,7 +95,7 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
   void _addChapter() async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const ChapterEditorPage()),
+      MaterialPageRoute(builder: (_) => ChapterEditorPage(draftId: _draftId)),
     );
 
     if (result is CreatorChapter) {
@@ -107,7 +109,10 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ChapterEditorPage(initialChapter: _chapters[index]),
+        builder: (_) => ChapterEditorPage(
+          initialChapter: _chapters[index],
+          draftId: _draftId,
+        ),
       ),
     );
 
@@ -238,32 +243,46 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
       libraryBasePath = '${appDir.path}/${book.id}';
     }
 
+    final List<CreatorChapter> newChapters = [];
+    final audioDir = await DraftService.getAudioDir(_draftId);
+
+    for (final chapter in book.chapters) {
+      String? sourcePath;
+      if (chapter.audioPath.isNotEmpty && chapter.audioPath != 'null') {
+        if (audioBasePath != null) {
+          sourcePath = '$audioBasePath/${chapter.audioPath}';
+        } else {
+          sourcePath = '$libraryBasePath/${chapter.audioPath}';
+        }
+      }
+
+      String? draftAudioPath;
+      if (sourcePath != null) {
+        final sourceFile = File(sourcePath);
+        if (await sourceFile.exists()) {
+          final fileName =
+              '${chapter.name.replaceAll(" ", "_")}_${DateTime.now().millisecondsSinceEpoch}.mp3';
+          final destinationPath = '${audioDir.path}/$fileName';
+          await sourceFile.copy(destinationPath);
+          draftAudioPath = destinationPath;
+        }
+      }
+
+      newChapters.add(
+        CreatorChapter(
+          name: chapter.name,
+          arabic: chapter.arabicText,
+          translation: chapter.englishText,
+          audioPath: draftAudioPath,
+          audioLines: chapter.audioLines,
+        ),
+      );
+    }
+
     setState(() {
       _nameController.text = book.name;
       _chapters.clear();
-
-      for (final chapter in book.chapters) {
-        String? audioPath;
-        if (chapter.audioPath.isNotEmpty && chapter.audioPath != 'null') {
-          if (audioBasePath != null) {
-            // From ZIP import - use extracted path
-            audioPath = '$audioBasePath/${chapter.audioPath}';
-          } else {
-            // From library - use constructed path
-            audioPath = '$libraryBasePath/${chapter.audioPath}';
-          }
-        }
-
-        _chapters.add(
-          CreatorChapter(
-            name: chapter.name,
-            arabic: chapter.arabicText,
-            translation: chapter.englishText,
-            audioPath: audioPath,
-            audioLines: chapter.audioLines,
-          ),
-        );
-      }
+      _chapters.addAll(newChapters);
     });
   }
 
@@ -450,8 +469,13 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
 
 class ChapterEditorPage extends StatefulWidget {
   final CreatorChapter? initialChapter;
+  final String draftId;
 
-  const ChapterEditorPage({super.key, this.initialChapter});
+  const ChapterEditorPage({
+    super.key,
+    this.initialChapter,
+    required this.draftId,
+  });
 
   @override
   State<ChapterEditorPage> createState() => _ChapterEditorPageState();
@@ -489,8 +513,15 @@ class _ChapterEditorPageState extends State<ChapterEditorPage> {
   Future<void> _pickAudio() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.audio);
     if (result != null) {
+      final sourceFile = File(result.files.single.path!);
+      final audioDir = await DraftService.getAudioDir(widget.draftId);
+      final fileName = 'picked_${DateTime.now().millisecondsSinceEpoch}.mp3';
+      final destinationPath = '${audioDir.path}/$fileName';
+
+      await sourceFile.copy(destinationPath);
+
       setState(() {
-        _audioPath = result.files.single.path;
+        _audioPath = destinationPath;
         _audioLines = null;
       });
     }

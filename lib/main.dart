@@ -11,10 +11,12 @@ import 'package:rzi_hifdhapp/core/di/injection_container.dart' as di;
 import 'package:flutter/foundation.dart';
 import 'package:talker_flutter/talker_flutter.dart';
 import 'package:talker_bloc_logger/talker_bloc_logger.dart';
+import 'package:rzi_hifdhapp/core/services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await di.init();
+  await NotificationService().init(); // Initialize notifications
 
   final talker = di.sl<Talker>();
   Bloc.observer = TalkerBlocObserver(talker: talker);

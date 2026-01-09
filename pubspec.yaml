@@ -51,6 +51,9 @@ dependencies:
   talker_logger: ^5.1.9
   talker_bloc_logger: ^5.1.9
   share_plus: ^12.0.1
+  flutter_local_notifications: ^19.5.0
+  timezone: ^0.10.1
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

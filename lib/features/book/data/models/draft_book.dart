@@ -1,18 +1,21 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:rzi_hifdhapp/features/book/domain/entities/audio_line_range.dart';
 
 class DraftChapter {
   String name;
   String arabic;
   String translation;
   String? audioPath;
+  List<AudioLineRange>? audioLines;
 
   DraftChapter({
     this.name = '',
     this.arabic = '',
     this.translation = '',
     this.audioPath,
+    this.audioLines,
   });
 
   Map<String, dynamic> toJson() => {
@@ -20,6 +23,7 @@ class DraftChapter {
     'arabic': arabic,
     'translation': translation,
     'audioPath': audioPath,
+    'audioLines': audioLines?.map((l) => l.toJson()).toList(),
   };
 
   factory DraftChapter.fromJson(Map<String, dynamic> json) => DraftChapter(
@@ -27,6 +31,9 @@ class DraftChapter {
     arabic: json['arabic'] ?? '',
     translation: json['translation'] ?? '',
     audioPath: json['audioPath'],
+    audioLines: (json['audioLines'] as List?)
+        ?.map((l) => AudioLineRange.fromJson(l))
+        .toList(),
   );
 }
 
@@ -64,6 +71,20 @@ class DraftService {
   static Future<String> get _localPath async {
     final directory = await getApplicationDocumentsDirectory();
     return '${directory.path}/book_drafts';
+  }
+
+  static Future<String> getAudioPath(String draftId) async {
+    final root = await _localPath;
+    return '$root/$draftId/audio';
+  }
+
+  static Future<Directory> getAudioDir(String draftId) async {
+    final path = await getAudioPath(draftId);
+    final dir = Directory(path);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
   }
 
   static Future<Directory> get _localDir async {
@@ -106,6 +127,14 @@ class DraftService {
     final file = File('${dir.path}/$id.json');
     if (await file.exists()) {
       await file.delete();
+    }
+    // Delete associated audio folder
+    final audioDirPath = await getAudioPath(id);
+    final audioDir = Directory(
+      audioDirPath,
+    ).parent; // Delete the draft's specific folder
+    if (await audioDir.exists()) {
+      await audioDir.delete(recursive: true);
     }
   }
 }
