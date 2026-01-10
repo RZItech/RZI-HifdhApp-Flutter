@@ -227,8 +227,12 @@ class _ChapterCardState extends State<ChapterCard> {
     bool isMatch = normalizedRecognized == normalizedTarget;
 
     if (isMatch) {
+      sl<Talker>().info('✓ Match Found for Line $index!');
       _handleSuccess(index);
     } else {
+      sl<Talker>().info(
+        'Line was incorrect expected: \n$normalizedTarget \nbut got: \n$normalizedRecognized',
+      );
       _handleFailure(index);
     }
   }

@@ -46,3 +46,4 @@ app.*.map.json
 
 # Speech-to-Text models
 .agent/rules/myrules.md
+.sync-conflict*

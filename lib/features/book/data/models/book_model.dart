@@ -5,6 +5,7 @@ class BookModel extends Book {
   const BookModel({
     required super.id,
     required super.name,
+    required super.version,
     required super.chapters,
   });
 
@@ -23,6 +24,7 @@ class BookModel extends Book {
     return BookModel(
       id: bookName,
       name: yaml['name'] ?? bookName,
+      version: (yaml['version'] ?? '1.0').toString(),
       chapters: chapters,
     );
   }

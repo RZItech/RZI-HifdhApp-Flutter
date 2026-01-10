@@ -4,9 +4,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_bloc.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_event.dart';
+import 'package:rzi_hifdhapp/features/book/presentation/cubit/book_store_cubit.dart';
+import 'package:rzi_hifdhapp/features/book/domain/entities/store_book.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_state.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/pages/book_page.dart';
-import 'package:rzi_hifdhapp/features/settings/presentation/pages/settings_page.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/pages/drafts_page.dart';
 
 class HomePage extends StatelessWidget {
@@ -16,34 +17,19 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.settings),
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsPage()),
-            );
-          },
-        ),
         title: const Text('My Books'),
         actions: [
-          // Only show import button on non-web platforms
+          // Only show drafts button on non-web platforms
           if (!kIsWeb)
-            InkWell(
-              customBorder: const CircleBorder(),
-              onTap: () {
-                context.read<BookBloc>().add(ImportBookEvent());
-              },
-              onLongPress: () {
+            IconButton(
+              icon: const Icon(Icons.history),
+              onPressed: () {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const DraftsPage()),
                 );
               },
-              child: const Padding(
-                padding: EdgeInsets.all(12.0),
-                child: Icon(Icons.add),
-              ),
+              tooltip: 'Drafts',
             ),
         ],
       ),
@@ -99,12 +85,45 @@ class HomePage extends StatelessWidget {
                   onDismissed: (direction) {
                     context.read<BookBloc>().add(DeleteBookEvent(book));
                   },
-                  child: ListTile(
-                    title: Text(book.name),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => BookPage(book: book)),
+                  child: BlocBuilder<BookStoreCubit, BookStoreState>(
+                    builder: (context, storeState) {
+                      bool hasUpdate = false;
+                      if (storeState is BookStoreLoaded) {
+                        final storeBook = storeState.books
+                            .cast<StoreBook?>()
+                            .firstWhere(
+                              (sb) => sb?.id == book.id,
+                              orElse: () => null,
+                            );
+                        if (storeBook != null &&
+                            storeBook.version != book.version) {
+                          hasUpdate = true;
+                        }
+                      }
+
+                      return ListTile(
+                        title: Row(
+                          children: [
+                            Expanded(child: Text(book.name)),
+                            if (hasUpdate)
+                              const Tooltip(
+                                message: 'Update available',
+                                child: Icon(
+                                  Icons.system_update_alt,
+                                  color: Colors.orange,
+                                  size: 18,
+                                ),
+                              ),
+                          ],
+                        ),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => BookPage(book: book),
+                            ),
+                          );
+                        },
                       );
                     },
                   ),

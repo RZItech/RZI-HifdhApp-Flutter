@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_bloc.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_event.dart';
-import 'package:rzi_hifdhapp/features/book/presentation/pages/home_page.dart';
+import 'package:rzi_hifdhapp/features/book/presentation/pages/main_screen.dart';
+import 'package:rzi_hifdhapp/features/book/presentation/cubit/book_store_cubit.dart';
 import 'package:rzi_hifdhapp/features/player/presentation/bloc/player_bloc.dart';
 import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_cubit.dart';
 import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_state.dart';
@@ -41,6 +42,7 @@ class MyApp extends StatelessWidget {
         BlocProvider(create: (_) => di.sl<BookBloc>()..add(LoadBooks())),
         BlocProvider(create: (_) => di.sl<PlayerBloc>()),
         BlocProvider(create: (_) => di.sl<ThemeCubit>()),
+        BlocProvider(create: (_) => di.sl<BookStoreCubit>()..loadBooks()),
       ],
       child: BlocBuilder<ThemeCubit, ThemeState>(
         builder: (context, themeState) {
@@ -61,7 +63,7 @@ class MyApp extends StatelessWidget {
               useMaterial3: true,
             ),
             themeMode: themeState.themeMode,
-            home: const HomePage(),
+            home: const MainScreen(),
           );
         },
       ),

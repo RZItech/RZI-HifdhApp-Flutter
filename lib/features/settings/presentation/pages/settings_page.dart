@@ -4,6 +4,7 @@ import 'package:rzi_hifdhapp/features/settings/data/models/theme_mode_preference
 import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_cubit.dart';
 import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_state.dart';
 import 'package:rzi_hifdhapp/features/settings/presentation/pages/book_reminders_page.dart';
+import 'package:rzi_hifdhapp/features/book/presentation/cubit/book_store_cubit.dart';
 import 'package:talker_flutter/talker_flutter.dart';
 import 'package:rzi_hifdhapp/core/di/injection_container.dart' as di;
 
@@ -107,16 +108,32 @@ class SettingsPage extends StatelessWidget {
           ),
           Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: ListTile(
-              title: const Text('Open Logs'),
-              leading: const Icon(Icons.monitor_heart),
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => TalkerScreen(talker: di.sl<Talker>()),
-                  ),
-                );
-              },
+            child: Column(
+              children: [
+                ListTile(
+                  title: const Text('Open Logs'),
+                  leading: const Icon(Icons.monitor_heart),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            TalkerScreen(talker: di.sl<Talker>()),
+                      ),
+                    );
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  title: const Text('Refresh Book Store'),
+                  leading: const Icon(Icons.refresh),
+                  onTap: () {
+                    context.read<BookStoreCubit>().loadBooks();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Book store refreshed')),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
         ],

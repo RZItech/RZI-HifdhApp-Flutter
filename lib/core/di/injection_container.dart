@@ -12,6 +12,10 @@ import 'package:rzi_hifdhapp/features/book/domain/usecases/delete_book.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_bloc.dart';
 import 'package:rzi_hifdhapp/features/player/presentation/bloc/player_bloc.dart';
 import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_cubit.dart';
+import 'package:http/http.dart' as http;
+import 'package:rzi_hifdhapp/features/book/data/datasources/book_store_remote_data_source.dart';
+import 'package:rzi_hifdhapp/features/book/data/repositories/book_store_repository_impl.dart';
+import 'package:rzi_hifdhapp/features/book/presentation/cubit/book_store_cubit.dart';
 import 'package:rzi_hifdhapp/features/player/services/audio_handler.dart';
 import 'package:rzi_hifdhapp/features/settings/data/repositories/reminder_repository.dart';
 
@@ -35,6 +39,7 @@ Future<void> init() async {
   );
   sl.registerFactory(() => PlayerBloc(audioHandler: sl()));
   sl.registerLazySingleton(() => ThemeCubit(sl()));
+  sl.registerFactory(() => BookStoreCubit(repository: sl()));
 
   // Use cases
   sl.registerLazySingleton(() => GetBooks(sl()));
@@ -45,17 +50,24 @@ Future<void> init() async {
   sl.registerLazySingleton<BookRepository>(
     () => BookRepositoryImpl(localDataSource: sl()),
   );
+  sl.registerLazySingleton<BookStoreRepository>(
+    () => BookStoreRepositoryImpl(remoteDataSource: sl()),
+  );
   sl.registerLazySingleton(() => ReminderRepository(sl()));
 
   // Data sources
   sl.registerLazySingleton<BookLocalDataSource>(
     () => BookLocalDataSourceImpl(),
   );
+  sl.registerLazySingleton<BookStoreRemoteDataSource>(
+    () => BookStoreRemoteDataSourceImpl(client: sl(), talker: sl()),
+  );
 
   // Services
   sl.registerLazySingleton(() => SpeechService());
 
   // External
+  sl.registerLazySingleton(() => http.Client());
   final sharedPreferences = await SharedPreferences.getInstance();
   sl.registerLazySingleton(() => sharedPreferences);
   sl.registerLazySingleton(() => SharedPreferencesAsync());

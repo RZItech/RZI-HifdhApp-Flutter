@@ -16,15 +16,19 @@ class TextUtils {
     // Replace Taa Marbutah with Haa
     normalized = normalized.replaceAll('ة', 'ه');
     normalized = normalized.replaceAll('ﺔ', 'ه');
-    // Replace Alif Maqsurah with Alif
-    normalized = normalized.replaceAll('ى', 'ا');
-    // Replace Alif Hamza/Madda with Alif
-    normalized = normalized.replaceAll(RegExp('[أإآ]'), 'ا');
+    // Replace Alif Maqsurah with Alif (This cant be correct?!)
+    // normalized = normalized.replaceAll('ى', 'ا');
+    // Replace Alif Hamza/Madda/Wasla with Alif
+    normalized = normalized.replaceAll(RegExp('[أإآٱ]'), 'ا');
 
-    // Remove diacritics/Tashkeel by explicitly listing common ones
-    // Fatha, Damma, Kasra, Shadda, Sukun, Fathatan, Dammatan, Kasratan
+    // Remove diacritics/Tashkeel and Quranic signs
+    // \u0670: Dagger Alif (Alif Khanjareeya)
+    // \u064B-\u0652: Standard tashkeel
+    // \u06DF-\u06E2: Quranic signs of stopped/extra letters
     normalized = normalized.replaceAll(
-      RegExp('[\u064E\u064F\u0650\u0651\u0652\u064B\u064C\u064D]'),
+      RegExp(
+        '[\u064E\u064F\u0650\u0651\u0652\u064B\u064C\u064D\u0670\u06DF-\u06E4]',
+      ),
       '',
     );
 

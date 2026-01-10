@@ -3,7 +3,7 @@
 <plist version="1.0">
 	<dict>
 		<key>CADisableMinimumFrameDurationOnPhone</key>
-		<true/>
+		<true />
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
@@ -25,13 +25,13 @@
 		<key>CFBundleVersion</key>
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>LSRequiresIPhoneOS</key>
-		<true/>
+		<true />
 		<key>NSMicrophoneUsageDescription</key>
 		<string>This app uses the microphone to record your voice for speech recognition.</string>
 		<key>NSSpeechRecognitionUsageDescription</key>
 		<string>This app uses speech recognition to test your memorization of the book.</string>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
-		<true/>
+		<true />
 		<key>UILaunchStoryboardName</key>
 		<string>LaunchScreen</string>
 		<key>UIMainStoryboardFile</key>
@@ -52,10 +52,11 @@
 		<key>UIBackgroundModes</key>
 		<array>
 			<string>audio</string>
+			<string>remote-notification</string>
 		</array>
 		<key>UIStatusBarHidden</key>
-		<true/>
+		<false />
 		<key>UIViewControllerBasedStatusBarAppearance</key>
-		<false/>
+		<false />
 	</dict>
 </plist>
