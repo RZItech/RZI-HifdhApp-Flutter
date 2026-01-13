@@ -11,10 +11,15 @@ class AudioPlayerHandler extends BaseAudioHandler
   Duration? _loopStart;
   Duration? _loopEnd;
   bool _autoLoop = true;
-  bool _isManuallyCompleted = false;
+
+  // Track whether we've signaled completion for this playback session
+  bool _hasSignaledCompletion = false;
 
   @override
-  Future<void> stop() => _audioPlayer.stop();
+  Future<void> stop() async {
+    await _audioPlayer.stop();
+    _hasSignaledCompletion = false;
+  }
 
   @override
   Future<void> setSpeed(double speed) async {
@@ -22,6 +27,10 @@ class AudioPlayerHandler extends BaseAudioHandler
     _broadcastState();
   }
 
+  /// Configure loop boundaries for the current audio file
+  ///
+  /// For single-chapter loops: Both start and end are set, autoLoop=true
+  /// For cross-chapter loops: Only relevant boundaries are set, autoLoop=false
   void setLoopRange(Duration? start, Duration? end, {bool autoLoop = true}) {
     _loopStart = start;
     _loopEnd = end;
@@ -29,7 +38,7 @@ class AudioPlayerHandler extends BaseAudioHandler
   }
 
   AudioPlayerHandler() {
-    // Configure global audio context for background support on iOS
+    // Configure audio context for background playback
     AudioPlayer.global.setAudioContext(
       AudioContext(
         iOS: AudioContextIOS(
@@ -51,63 +60,94 @@ class AudioPlayerHandler extends BaseAudioHandler
       ),
     );
 
-    // Listen to playback state events from the audio player
-    _audioPlayer.onPlayerStateChanged.listen(_propagatePlayerState);
-    _audioPlayer.onPositionChanged.listen((position) {
-      _currentPosition = position;
-      _broadcastState();
+    // Listen to player state changes
+    _audioPlayer.onPlayerStateChanged.listen(_handlePlayerStateChange);
 
-      // Handle Looping
-      if (_loopEnd != null && position >= _loopEnd!) {
-        if (_autoLoop) {
-          seek(_loopStart ?? Duration.zero);
-        } else {
-          // End of clip reached (for cross-chapter ending)
-          // Treat as completion
-          pause();
-          seek(_loopEnd!); // Visual feedback
-          _isManuallyCompleted = true;
-          playbackState.add(
-            playbackState.value.copyWith(
-              processingState: AudioProcessingState.completed,
-            ),
-          );
-        }
-      } else if (_loopStart != null && position < _loopStart!) {
-        // Generally enforce start boundary if strictly clipping
-        // But usually we just seek there initially.
-        // If user seeks backwards, maybe we let them?
-        // For now, let's enforce simple seeking to start if autoLoop is on.
-        if (_autoLoop) seek(_loopStart!);
-      }
-    });
-    _audioPlayer.onDurationChanged.listen((duration) {
-      final item = mediaItem.value;
-      if (item != null) {
-        mediaItem.add(item.copyWith(duration: duration));
-      }
-    });
+    // Listen to position updates for loop boundary enforcement
+    _audioPlayer.onPositionChanged.listen(_handlePositionUpdate);
 
-    // Handle audio session completion
-    _audioPlayer.onPlayerComplete.listen((_) {
-      _isManuallyCompleted = true;
-      if (playbackState.value.processingState !=
-          AudioProcessingState.completed) {
-        playbackState.add(
-          playbackState.value.copyWith(
-            processingState: AudioProcessingState.completed,
-          ),
-        );
-      }
-    });
+    // Listen to duration changes to update media item
+    _audioPlayer.onDurationChanged.listen(_handleDurationChange);
+
+    // Handle natural audio completion
+    _audioPlayer.onPlayerComplete.listen(_handlePlayerComplete);
   }
 
-  void _propagatePlayerState(PlayerState state) {
+  void _handlePlayerStateChange(PlayerState state) {
     _broadcastState();
+  }
+
+  void _handlePositionUpdate(Duration position) {
+    _currentPosition = position;
+    _broadcastState();
+
+    // Enforce loop boundaries
+    _enforceLoopBoundaries(position);
+  }
+
+  void _handleDurationChange(Duration duration) {
+    final item = mediaItem.value;
+    if (item != null) {
+      mediaItem.add(item.copyWith(duration: duration));
+    }
+  }
+
+  void _handlePlayerComplete(_) {
+    // Signal completion only once per playback session
+    if (!_hasSignaledCompletion) {
+      _hasSignaledCompletion = true;
+      _signalCompletion();
+    }
+  }
+
+  /// Enforce loop boundaries during playback
+  void _enforceLoopBoundaries(Duration position) {
+    // Check if we've reached the end boundary
+    if (_loopEnd != null && position >= _loopEnd!) {
+      if (_autoLoop && _loopStart != null) {
+        // Single-chapter loop: automatically loop back to start
+        seek(_loopStart!);
+      } else {
+        // Cross-chapter loop or end of clip: signal completion
+        // The bloc will handle transitioning to the next chapter
+        _signalCompletion();
+
+        // Pause at the end position for visual feedback
+        pause();
+      }
+    }
+    // Enforce start boundary if user seeks backward in auto-loop mode
+    // This prevents the user from accidentally playing content before the loop start
+    else if (_autoLoop && _loopStart != null && position < _loopStart!) {
+      seek(_loopStart!);
+    }
+  }
+
+  /// Signal that playback has completed
+  void _signalCompletion() {
+    if (_hasSignaledCompletion) return; // Already signaled
+
+    _hasSignaledCompletion = true;
+
+    playbackState.add(
+      playbackState.value.copyWith(
+        processingState: AudioProcessingState.completed,
+      ),
+    );
   }
 
   void _broadcastState() {
     final playing = _audioPlayer.state == PlayerState.playing;
+    final currentState = _audioPlayer.state;
+
+    // Determine the appropriate processing state
+    AudioProcessingState processingState;
+    if (currentState == PlayerState.completed && _hasSignaledCompletion) {
+      processingState = AudioProcessingState.completed;
+    } else {
+      processingState = _mapPlayerStateToProcessingState(currentState);
+    }
+
     playbackState.add(
       playbackState.value.copyWith(
         controls: [
@@ -122,22 +162,7 @@ class AudioPlayerHandler extends BaseAudioHandler
           MediaAction.seekBackward,
         },
         androidCompactActionIndices: const [0, 1, 3],
-        processingState: () {
-          final state = _audioPlayer.state;
-          if (state == PlayerState.completed) {
-            // ONLY broadcast completed if it was actually triggered by ending/clipping
-            return _isManuallyCompleted
-                ? AudioProcessingState.completed
-                : AudioProcessingState.ready;
-          }
-          return const {
-            PlayerState.stopped: AudioProcessingState.idle,
-            PlayerState.playing: AudioProcessingState.ready,
-            PlayerState.paused: AudioProcessingState.ready,
-            PlayerState.completed: AudioProcessingState.completed,
-            PlayerState.disposed: AudioProcessingState.idle,
-          }[state]!;
-        }(),
+        processingState: processingState,
         playing: playing,
         updatePosition: _currentPosition,
         bufferedPosition: _currentPosition,
@@ -145,6 +170,22 @@ class AudioPlayerHandler extends BaseAudioHandler
         queueIndex: 0,
       ),
     );
+  }
+
+  AudioProcessingState _mapPlayerStateToProcessingState(PlayerState state) {
+    switch (state) {
+      case PlayerState.stopped:
+      case PlayerState.disposed:
+        return AudioProcessingState.idle;
+      case PlayerState.playing:
+      case PlayerState.paused:
+        return AudioProcessingState.ready;
+      case PlayerState.completed:
+        // Only mark as completed if we've signaled it
+        return _hasSignaledCompletion
+            ? AudioProcessingState.completed
+            : AudioProcessingState.ready;
+    }
   }
 
   @override
@@ -156,18 +197,28 @@ class AudioPlayerHandler extends BaseAudioHandler
   @override
   Future<void> seek(Duration position) => _audioPlayer.seek(position);
 
+  /// Start playing a new audio file
+  ///
+  /// This resets the completion flag and transitions through buffering
+  /// to ensure clean state transitions
   Future<void> playFromFile(String filePath, MediaItem item) async {
     mediaItem.add(item);
-    _isManuallyCompleted = false;
 
-    // Explicitly transition out of completed/idle state before starting
+    // Reset completion flag for new playback session
+    _hasSignaledCompletion = false;
+
+    // Transition to buffering state before starting playback
+    // This ensures the UI shows loading status and prevents stale state
     playbackState.add(
       playbackState.value.copyWith(
         processingState: AudioProcessingState.buffering,
+        playing: false,
       ),
     );
 
+    // Start playback
     await _audioPlayer.play(DeviceFileSource(filePath));
-    // Skip manual _broadcastState() here to avoid stale state races
+
+    // State will be broadcast automatically through the state change listener
   }
 }
