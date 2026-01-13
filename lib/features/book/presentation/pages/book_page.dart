@@ -79,6 +79,7 @@ class _BookPageState extends State<BookPage> {
             allChapters: widget.book.chapters,
             isEnglishVisible: _isEnglishVisible,
             isTestingMode: _isTestingMode,
+            normalizationRules: widget.book.normalizationRules,
           );
         },
       ),

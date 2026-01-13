@@ -27,11 +27,6 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
   PlayerBloc({required this.audioHandler}) : super(const PlayerState()) {
     // Listen to playback state to detect completion and syncing
     _playbackStateSub = audioHandler.playbackState.listen((state) {
-      if (state.processingState == AudioProcessingState.completed) {
-        add(InternalPlaybackCompleteEvent());
-      }
-
-      // Sync playing status (Notification -> App)
       final isPlaying = state.playing;
       final derivedStatus = isPlaying
           ? PlayerStatus.playing
@@ -39,10 +34,28 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
                 ? PlayerStatus.stopped
                 : PlayerStatus.paused);
 
-      // Only add event if status is actually different to avoid loops/noise
-      // We can't easily access 'current bloc state' inside this callback without a capture,
-      // but 'add' is safe. The bloc handler can check equality.
-      add(SyncPlayerStatusEvent(derivedStatus));
+      // detect transition to completed
+      if (state.processingState == AudioProcessingState.completed &&
+          this.state.status != PlayerStatus.stopped) {
+        talker.debug('🏁 Audio handler reported completion');
+        add(InternalPlaybackCompleteEvent());
+      }
+
+      // Sync playing status (Notification -> App)
+      // Only add event if status is actually different to avoid log spam
+      if (this.state.status != derivedStatus) {
+        // Optimization: Skip syncing to 'paused' if we just hit 'completed'
+        // and a loop/advance is expected (handled by InternalPlaybackCompleteEvent).
+        if (derivedStatus == PlayerStatus.paused &&
+            state.processingState == AudioProcessingState.completed &&
+            this.state.loopMode != LoopMode.off) {
+          talker.debug(
+            '⏭️ Skipping sync to paused during loop/advance transition',
+          );
+        } else {
+          add(SyncPlayerStatusEvent(derivedStatus));
+        }
+      }
     });
 
     on<SyncPlayerStatusEvent>((event, emit) {
@@ -103,10 +116,18 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
     });
 
     on<InternalPlaybackCompleteEvent>((event, emit) async {
+      talker.debug(
+        '🔄 Handling InternalPlaybackCompleteEvent. Mode: ${state.loopMode}',
+      );
+
       if (state.loopMode == LoopMode.chapter) {
         // Replay current chapter
         if (state.chapter != null && state.bookId != null) {
+          talker.debug('🔁 Looping chapter: ${state.chapter!.name}');
           add(PlayEvent(bookName: state.bookId!, chapter: state.chapter!));
+        } else {
+          talker.warning('⚠️ Chapter or BookId missing for loop');
+          emit(state.copyWith(status: PlayerStatus.stopped));
         }
       } else if (state.loopMode == LoopMode.range) {
         // Check if we finished the END chapter
@@ -162,19 +183,32 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
         }
       } else {
         // Auto-advance logic (Loop Off)
+        talker.debug('➡️ Auto-advance logic (Loop Off)');
         if (state.playlist.isNotEmpty && state.chapter != null) {
           final currentIndex = state.playlist.indexWhere(
             (c) => c.id == state.chapter!.id,
           );
+          talker.debug(
+            '📍 Current Index: $currentIndex / ${state.playlist.length}',
+          );
+
           if (currentIndex != -1 && currentIndex < state.playlist.length - 1) {
             final nextChapter = state.playlist[currentIndex + 1];
             if (state.bookId != null) {
+              talker.debug('⏭️ Advancing to next chapter: ${nextChapter.name}');
               add(PlayEvent(bookName: state.bookId!, chapter: nextChapter));
+            } else {
+              talker.warning('⚠️ BookId missing for auto-advance');
+              emit(state.copyWith(status: PlayerStatus.stopped));
             }
           } else {
+            talker.info(
+              '🏁 End of playlist reached or chapter not found in list',
+            );
             emit(state.copyWith(status: PlayerStatus.stopped));
           }
         } else {
+          talker.debug('⏹️ Playlist empty or no current chapter, stopping');
           emit(state.copyWith(status: PlayerStatus.stopped));
         }
       }
@@ -247,6 +281,7 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
             loopEndLine: currentEndLine,
             loopStartChapterId: currentStartChapterId,
             loopEndChapterId: currentEndChapterId,
+            playlist: event.playlist ?? state.playlist,
           ),
         );
       } else {

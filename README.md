@@ -32,15 +32,4 @@ A Flutter application to help memorize Islamic texts.
       audio: audio/chapter_1.mp3
     ```
 
-3.  Run the app and press the '+' button to import the zip file.
-
-## How to run the app
-
-1.  Install dependencies:
-    ```
-    flutter pub get
-    ```
-2.  Run the app:
-    ```
-    flutter run
-    ```
+3.  Run the app, open the books store, and press the '+' button to import the zip file. There are also books in the book store for free

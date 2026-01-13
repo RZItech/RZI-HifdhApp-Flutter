@@ -121,6 +121,14 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   Future<void> playFromFile(String filePath, MediaItem item) async {
     mediaItem.add(item);
+
+    // Explicitly transition out of completed/idle state before starting
+    playbackState.add(
+      playbackState.value.copyWith(
+        processingState: AudioProcessingState.buffering,
+      ),
+    );
+
     await _audioPlayer.play(DeviceFileSource(filePath));
     _broadcastState();
   }

@@ -14,6 +14,8 @@ import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_state.dart';
 import 'package:rzi_hifdhapp/features/book/data/models/draft_book.dart';
 import 'package:rzi_hifdhapp/features/book/domain/entities/audio_line_range.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/pages/audio_timing_editor_page.dart';
+import 'package:talker_flutter/talker_flutter.dart';
+import 'package:rzi_hifdhapp/core/di/injection_container.dart' as di;
 
 class CreatorChapter {
   String name;
@@ -240,7 +242,7 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
     String? libraryBasePath;
     if (audioBasePath == null) {
       final appDir = await getApplicationDocumentsDirectory();
-      libraryBasePath = '${appDir.path}/${book.id}';
+      libraryBasePath = '${appDir.path}/books/${book.id}';
     }
 
     final List<CreatorChapter> newChapters = [];
@@ -265,6 +267,11 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
           final destinationPath = '${audioDir.path}/$fileName';
           await sourceFile.copy(destinationPath);
           draftAudioPath = destinationPath;
+          di.sl<Talker>().info(
+            'Copied audio for ${chapter.name}: $destinationPath',
+          );
+        } else {
+          di.sl<Talker>().warning('Source audio not found: $sourcePath');
         }
       }
 
@@ -511,7 +518,10 @@ class _ChapterEditorPageState extends State<ChapterEditorPage> {
   }
 
   Future<void> _pickAudio() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.audio);
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['mp3', 'wav', 'm4a', 'aac', 'adts'],
+    );
     if (result != null) {
       final sourceFile = File(result.files.single.path!);
       final audioDir = await DraftService.getAudioDir(widget.draftId);

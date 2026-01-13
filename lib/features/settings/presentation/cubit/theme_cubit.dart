@@ -6,6 +6,8 @@ import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_state.da
 
 class ThemeCubit extends Cubit<ThemeState> {
   static const String _themePreferenceKey = 'theme_preference';
+  static const String _arabicFontSizeKey = 'arabic_font_size';
+  static const String _englishFontSizeKey = 'english_font_size';
   final SharedPreferencesAsync _prefs;
 
   ThemeCubit(this._prefs) : super(const ThemeState.initial()) {
@@ -15,25 +17,39 @@ class ThemeCubit extends Cubit<ThemeState> {
   Future<void> _loadThemePreference() async {
     try {
       final preferenceString = await _prefs.getString(_themePreferenceKey);
+      final arabicSize = await _prefs.getDouble(_arabicFontSizeKey);
+      final englishSize = await _prefs.getDouble(_englishFontSizeKey);
 
-      if (preferenceString != null) {
-        final preference = ThemeModePreferenceExtension.fromJson(
-          preferenceString,
-        );
-        _applyThemePreference(preference);
-      }
+      final preference = preferenceString != null
+          ? ThemeModePreferenceExtension.fromJson(preferenceString)
+          : ThemeModePreference.auto;
+
+      _applyPreference(preference, arabicSize, englishSize);
     } catch (e) {
-      // If there's an error loading preferences, use default
       emit(const ThemeState.initial());
     }
   }
 
   Future<void> setThemePreference(ThemeModePreference preference) async {
     await _prefs.setString(_themePreferenceKey, preference.toJson());
-    _applyThemePreference(preference);
+    _applyPreference(preference, state.arabicFontSize, state.englishFontSize);
   }
 
-  void _applyThemePreference(ThemeModePreference preference) {
+  Future<void> setArabicFontSize(double size) async {
+    await _prefs.setDouble(_arabicFontSizeKey, size);
+    emit(state.copyWith(arabicFontSize: size));
+  }
+
+  Future<void> setEnglishFontSize(double size) async {
+    await _prefs.setDouble(_englishFontSizeKey, size);
+    emit(state.copyWith(englishFontSize: size));
+  }
+
+  void _applyPreference(
+    ThemeModePreference preference,
+    double? arabicSize,
+    double? englishSize,
+  ) {
     ThemeMode themeMode;
 
     switch (preference) {
@@ -44,11 +60,17 @@ class ThemeCubit extends Cubit<ThemeState> {
         themeMode = ThemeMode.dark;
         break;
       case ThemeModePreference.auto:
-        // Use system theme
         themeMode = ThemeMode.system;
         break;
     }
 
-    emit(ThemeState(themeMode: themeMode, preference: preference));
+    emit(
+      ThemeState(
+        themeMode: themeMode,
+        preference: preference,
+        arabicFontSize: arabicSize ?? 24.0,
+        englishFontSize: englishSize ?? 14.0,
+      ),
+    );
   }
 }

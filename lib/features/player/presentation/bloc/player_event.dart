@@ -34,6 +34,7 @@ class PlayFromPositionEvent extends PlayerEvent {
   final int? loopEndLine;
   final String? startChapterId;
   final String? endChapterId;
+  final List<Chapter>? playlist;
 
   const PlayFromPositionEvent({
     required this.bookName,
@@ -43,6 +44,7 @@ class PlayFromPositionEvent extends PlayerEvent {
     this.loopEndLine,
     this.startChapterId,
     this.endChapterId,
+    this.playlist,
   });
 
   @override
@@ -54,6 +56,7 @@ class PlayFromPositionEvent extends PlayerEvent {
     loopEndLine ?? -1,
     startChapterId ?? '',
     endChapterId ?? '',
+    playlist ?? [],
   ];
 }
 

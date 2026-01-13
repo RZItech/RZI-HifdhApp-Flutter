@@ -1,3 +1,5 @@
+import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_cubit.dart';
+import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_state.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:talker_flutter/talker_flutter.dart';
@@ -20,6 +22,7 @@ class ChapterCard extends StatefulWidget {
   final List<Chapter> allChapters;
   final bool isEnglishVisible;
   final bool isTestingMode;
+  final Map<String, String> normalizationRules;
 
   const ChapterCard({
     super.key,
@@ -28,6 +31,7 @@ class ChapterCard extends StatefulWidget {
     this.allChapters = const [],
     required this.isEnglishVisible,
     required this.isTestingMode,
+    this.normalizationRules = const {},
   });
 
   @override
@@ -73,6 +77,17 @@ class _ChapterCardState extends State<ChapterCard> {
   }
 
   void _updateCurrentPlayingLine(double currentSeconds) {
+    final playerState = context.read<PlayerBloc>().state;
+    if (playerState.bookId != widget.bookId ||
+        playerState.chapter?.id != widget.chapter.id) {
+      if (_currentPlayingLine != null) {
+        setState(() {
+          _currentPlayingLine = null;
+        });
+      }
+      return;
+    }
+
     int? newPlayingLine;
     for (int i = 0; i < widget.chapter.audioLines.length; i++) {
       final range = widget.chapter.audioLines[i];
@@ -133,8 +148,14 @@ class _ChapterCardState extends State<ChapterCard> {
     final recognizedText = _speechService.recognizedWordsNotifier.value;
     final targetText = _lines[index];
 
-    final normalizedRecognized = TextUtils.normalizeArabic(recognizedText);
-    final normalizedTarget = TextUtils.normalizeArabic(targetText);
+    final normalizedRecognized = TextUtils.normalizeArabic(
+      recognizedText,
+      widget.normalizationRules,
+    );
+    final normalizedTarget = TextUtils.normalizeArabic(
+      targetText,
+      widget.normalizationRules,
+    );
 
     sl<Talker>().debug(
       'Live check - Rec: "$normalizedRecognized" | Tar: "$normalizedTarget"',
@@ -217,8 +238,14 @@ class _ChapterCardState extends State<ChapterCard> {
     final recognizedText = _speechService.recognizedWordsNotifier.value;
     final targetText = _lines[index];
 
-    final normalizedRecognized = TextUtils.normalizeArabic(recognizedText);
-    final normalizedTarget = TextUtils.normalizeArabic(targetText);
+    final normalizedRecognized = TextUtils.normalizeArabic(
+      recognizedText,
+      widget.normalizationRules,
+    );
+    final normalizedTarget = TextUtils.normalizeArabic(
+      targetText,
+      widget.normalizationRules,
+    );
 
     sl<Talker>().info(
       'Validating Line $index\nRec: $normalizedRecognized\nTar: $normalizedTarget',
@@ -283,6 +310,7 @@ class _ChapterCardState extends State<ChapterCard> {
 
       // Use PlayFromPositionEvent to handle both playing and seeking
       if (playerState.status == PlayerStatus.playing &&
+          playerState.bookId == widget.bookId &&
           playerState.chapter?.id == widget.chapter.id) {
         talker.debug('▶️ Already playing, sending SeekEvent');
         // Already playing this chapter, just seek
@@ -301,6 +329,7 @@ class _ChapterCardState extends State<ChapterCard> {
             bookName: widget.bookId,
             chapter: widget.chapter,
             position: Duration(milliseconds: (range.start * 1000).toInt()),
+            playlist: widget.allChapters,
           ),
         );
       }
@@ -380,7 +409,12 @@ class _ChapterCardState extends State<ChapterCard> {
       }
     } else {
       // Styling for Player Mode: Highlight currently playing line
-      if (_currentPlayingLine == index) {
+      final playerState = context.read<PlayerBloc>().state;
+      final bool isCurrentHandled =
+          playerState.bookId == widget.bookId &&
+          playerState.chapter?.id == widget.chapter.id;
+
+      if (isCurrentHandled && _currentPlayingLine == index) {
         backgroundColor = Colors.blue.withValues(alpha: 0.15);
       } else {
         backgroundColor = null;
@@ -437,6 +471,7 @@ class _ChapterCardState extends State<ChapterCard> {
                           loopEndLine: index,
                           startChapterId: widget.chapter.id.toString(),
                           endChapterId: widget.chapter.id.toString(),
+                          playlist: widget.allChapters,
                         ),
                       );
                       Navigator.pop(ctx);
@@ -451,6 +486,20 @@ class _ChapterCardState extends State<ChapterCard> {
                       _showCustomRangePickerInitial(index);
                     },
                   ),
+                  const Divider(),
+                  ListTile(
+                    leading: const Icon(Icons.repeat, color: Colors.red),
+                    title: const Text(
+                      'Stop Loop',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                    onTap: () {
+                      context.read<PlayerBloc>().add(
+                        const SetLoopModeEvent(loopMode: LoopMode.off),
+                      );
+                      Navigator.pop(ctx);
+                    },
+                  ),
                 ],
               ),
             );
@@ -463,66 +512,69 @@ class _ChapterCardState extends State<ChapterCard> {
                 index < widget.chapter.audioLines.length)
           ? () => _seekToLine(index)
           : null,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-        margin: const EdgeInsets.only(bottom: 4),
-        decoration: BoxDecoration(
-          color: backgroundColor,
-          borderRadius: BorderRadius.circular(8),
-          border: (widget.isTestingMode && state == LineState.listening)
-              ? Border.all(color: Colors.blue, width: 2)
-              : null,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Arabic Text with Blur Effect in Testing Mode
-            Builder(
-              builder: (context) {
-                final bool isArabicHidden =
-                    widget.isTestingMode &&
-                    state != LineState.correct &&
-                    state != LineState.failed;
-
-                Widget arabicTextWidget = Text(
-                  arabicLine,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontFamily: 'Arabic',
-                    color: textColor,
-                  ),
-                  textAlign: TextAlign.right,
-                  textDirection: TextDirection.rtl,
-                );
-
-                if (isArabicHidden) {
-                  return ImageFiltered(
-                    imageFilter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                    child: arabicTextWidget,
-                  );
-                }
-                return arabicTextWidget;
-              },
+      child: BlocBuilder<ThemeCubit, ThemeState>(
+        builder: (context, themeState) {
+          return Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            margin: const EdgeInsets.only(bottom: 4),
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              borderRadius: BorderRadius.circular(8),
+              border: (widget.isTestingMode && state == LineState.listening)
+                  ? Border.all(color: Colors.blue, width: 2)
+                  : null,
             ),
-            if (widget.isEnglishVisible && englishLine.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                englishLine,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? Colors.grey[400]
-                      : Colors.grey[600],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Arabic Text with Blur Effect in Testing Mode
+                Builder(
+                  builder: (context) {
+                    final bool isArabicHidden =
+                        widget.isTestingMode &&
+                        state != LineState.correct &&
+                        state != LineState.failed;
+
+                    Widget arabicTextWidget = Text(
+                      arabicLine,
+                      style: TextStyle(
+                        fontSize: themeState.arabicFontSize,
+                        fontFamily: 'Arabic',
+                        color: textColor,
+                      ),
+                      textAlign: TextAlign.right,
+                      textDirection: TextDirection.rtl,
+                    );
+
+                    if (isArabicHidden) {
+                      return ImageFiltered(
+                        imageFilter: ui.ImageFilter.blur(
+                          sigmaX: 10,
+                          sigmaY: 10,
+                        ),
+                        child: arabicTextWidget,
+                      );
+                    }
+                    return arabicTextWidget;
+                  },
                 ),
-                textAlign: TextAlign
-                    .right, // English aligned right to match Arabic flow? Or Center?
-                // User didn't specify alignment, but usually below arabic implies matching alignment or center.
-                // Given standard Quran apps, english usually follows RTL flow visually if block, or LTR if line.
-                // Let's try Center for translation or Right to keep flow. Right feels safer for "under line".
-              ),
-            ],
-          ],
-        ),
+                if (widget.isEnglishVisible && englishLine.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    englishLine,
+                    style: TextStyle(
+                      fontSize: themeState.englishFontSize,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? Colors.grey[400]
+                          : Colors.grey[600],
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ],
+              ],
+            ),
+          );
+        },
       ),
     );
   }

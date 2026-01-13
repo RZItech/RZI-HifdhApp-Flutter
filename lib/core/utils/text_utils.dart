@@ -1,30 +1,16 @@
-class TextUtils {
-  static String normalizeArabic(String text) {
-    String normalized = text;
-    // Convert digits to Arabic words first, to match the target text format
-    // normalized = normalized.replaceAll('صفر','0');
-    // normalized = normalized.replaceAll('واحد','1');
-    // normalized = normalized.replaceAll('اثنين','2');
-    // normalized = normalized.replaceAll('ثلاثة','3');
-    // normalized = normalized.replaceAll('اربعة','4');
-    // normalized = normalized.replaceAll('خمسة','5');
-    // normalized = normalized.replaceAll('ستة','6');
-    // normalized = normalized.replaceAll('سبعة','7');
-    // normalized = normalized.replaceAll('ثمانية','8');
-    // normalized = normalized.replaceAll('تسعة', '9');
+import 'package:talker_flutter/talker_flutter.dart';
+import 'package:rzi_hifdhapp/core/di/injection_container.dart';
 
-    // Replace Taa Marbutah with Haa
-    normalized = normalized.replaceAll('ة', 'ه');
-    normalized = normalized.replaceAll('ﺔ', 'ه');
-    // Replace Alif Maqsurah with Alif (This cant be correct?!)
-    // normalized = normalized.replaceAll('ى', 'ا');
-    // Replace Alif Hamza/Madda/Wasla with Alif
-    normalized = normalized.replaceAll(RegExp('[أإآٱ]'), 'ا');
+class TextUtils {
+  static String normalizeArabic(
+    String text, [
+    Map<String, String>? customRules,
+  ]) {
+    String normalized = text;
+
+    // 1. Initial basic cleaning (diacritics, tatweel, formatting, punctuation)
 
     // Remove diacritics/Tashkeel and Quranic signs
-    // \u0670: Dagger Alif (Alif Khanjareeya)
-    // \u064B-\u0652: Standard tashkeel
-    // \u06DF-\u06E2: Quranic signs of stopped/extra letters
     normalized = normalized.replaceAll(
       RegExp(
         '[\u064E\u064F\u0650\u0651\u0652\u064B\u064C\u064D\u0670\u06DF-\u06E4]',
@@ -32,25 +18,55 @@ class TextUtils {
       '',
     );
 
-    // Remove punctuation and spaces
-    // Explicitly listing special characters for RegExp character class
-    // Matches: . , : ; ? ! - _ " ( ) and whitespace (including newlines)
-    normalized = normalized.replaceAll(RegExp(r'[.,:;?!\-_"()]'), '');
-    normalized = normalized.replaceAll(RegExp(r'\s'), ' ');
+    // Remove Tatweel (elongation character)
+    normalized = normalized.replaceAll('ـ', '');
 
-    // Remove invisible formatting characters (RLM, LRM, etc.) that iOS might insert
-    // \u200E: Left-to-Right Mark
-    // \u200F: Right-to-Left Mark
-    // \u202A-\u202E: Directional formatting
+    // Remove invisible formatting characters (RLM, LRM, etc.)
     normalized = normalized.replaceAll(
       RegExp('[\u200E\u200F\u202A-\u202E]'),
       '',
     );
 
-    // Remove Tatweel (elongation character)
-    normalized = normalized.replaceAll('ـ', '');
+    // Remove punctuation
+    normalized = normalized.replaceAll(RegExp(r'[.,:;?!\-_"()]'), '');
 
-    // Trim any remaining whitespace from ends
-    return normalized.trim();
+    // 2. Standardization (Alif, Taa Marbutah, etc.)
+
+    // Replace Taa Marbutah with Haa
+    normalized = normalized.replaceAll('ة', 'ه');
+    normalized = normalized.replaceAll('ﺔ', 'ه');
+
+    // Replace Alif Maqsurah with Yaa (standard for this app's current config)
+    normalized = normalized.replaceAll('ى', 'ي');
+
+    // Replace Alif Hamza/Madda/Wasla with Alif
+    normalized = normalized.replaceAll(RegExp('[أإآٱ]'), 'ا');
+
+    // Normalize spacing
+    normalized = normalized.replaceAll(RegExp(r'\s+'), ' ');
+
+    if (normalized.startsWith('و')) {
+      normalized = normalized.replaceFirst(RegExp('و'), '');
+    }
+
+    normalized = normalized.trim();
+
+    // 3. Apply Custom Rules (LAST, on fully normalized text)
+    if (customRules != null && customRules.isNotEmpty) {
+      customRules.forEach((from, to) {
+        // We normalize the 'from' and 'to' parts of the rule to match our current text state
+        final cleanFrom = normalizeArabic(from);
+        final cleanTo = normalizeArabic(to);
+
+        if (normalized.contains(cleanFrom)) {
+          sl<Talker>().debug(
+            '🔄 Applying Custom Rule: "$cleanFrom" -> "$cleanTo"',
+          );
+          normalized = normalized.replaceAll(cleanFrom, cleanTo);
+        }
+      });
+    }
+
+    return normalized;
   }
 }
