@@ -23,6 +23,8 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
   }
 
   StreamSubscription? _playbackStateSub;
+  AudioProcessingState? _lastProcessingState;
+  DateTime _lastCompletionTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   PlayerBloc({required this.audioHandler}) : super(const PlayerState()) {
     // Listen to playback state to detect completion and syncing
@@ -35,22 +37,34 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
                 : PlayerStatus.paused);
 
       // detect transition to completed
-      if (state.processingState == AudioProcessingState.completed &&
-          this.state.status != PlayerStatus.stopped) {
-        talker.debug('🏁 Audio handler reported completion');
-        add(InternalPlaybackCompleteEvent());
+      final isCompleted =
+          state.processingState == AudioProcessingState.completed;
+      final wasCompleted =
+          _lastProcessingState == AudioProcessingState.completed;
+
+      final now = DateTime.now();
+      final timeSinceLastComplete = now.difference(_lastCompletionTime);
+
+      if (isCompleted &&
+          !wasCompleted &&
+          this.state.status != PlayerStatus.stopped &&
+          this.state.chapter != null &&
+          timeSinceLastComplete > const Duration(milliseconds: 500)) {
+        talker.info('🏁 Audio handler reported completion (New transition)');
+        _lastCompletionTime = now;
+        add(InternalPlaybackCompleteEvent(chapterId: this.state.chapter!.id));
       }
+      _lastProcessingState = state.processingState;
 
       // Sync playing status (Notification -> App)
       // Only add event if status is actually different to avoid log spam
       if (this.state.status != derivedStatus) {
         // Optimization: Skip syncing to 'paused' if we just hit 'completed'
-        // and a loop/advance is expected (handled by InternalPlaybackCompleteEvent).
+        // and a transition is expected (handled by InternalPlaybackCompleteEvent).
         if (derivedStatus == PlayerStatus.paused &&
-            state.processingState == AudioProcessingState.completed &&
-            this.state.loopMode != LoopMode.off) {
+            state.processingState == AudioProcessingState.completed) {
           talker.debug(
-            '⏭️ Skipping sync to paused during loop/advance transition',
+            '⏭️ Skipping sync to paused during completion transition',
           );
         } else {
           add(SyncPlayerStatusEvent(derivedStatus));
@@ -116,91 +130,121 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
     });
 
     on<InternalPlaybackCompleteEvent>((event, emit) async {
-      talker.debug(
-        '🔄 Handling InternalPlaybackCompleteEvent. Mode: ${state.loopMode}',
+      // Capture state variables BEFORE the delay to avoid async state shifts
+      final completedChapter = state.chapter;
+      final completedBookId = state.bookId;
+      final completedPlaylist = state.playlist;
+      final currentLoopMode = state.loopMode;
+
+      talker.info(
+        '🎯 InternalPlaybackCompleteEvent triggered for chapter ${event.chapterId} (${completedChapter?.name}). Mode: $currentLoopMode',
       );
 
-      if (state.loopMode == LoopMode.chapter) {
-        // Replay current chapter
-        if (state.chapter != null && state.bookId != null) {
-          talker.debug('🔁 Looping chapter: ${state.chapter!.name}');
-          add(PlayEvent(bookName: state.bookId!, chapter: state.chapter!));
-        } else {
-          talker.warning('⚠️ Chapter or BookId missing for loop');
-          emit(state.copyWith(status: PlayerStatus.stopped));
-        }
-      } else if (state.loopMode == LoopMode.range) {
-        // Check if we finished the END chapter
-        if (state.chapter?.id.toString() == state.loopEndChapterId) {
-          // Finished loop cycle -> Jump to Start
-          final startChapter = state.playlist.firstWhere(
-            (c) => c.id.toString() == state.loopStartChapterId,
-            orElse: () => state.chapter!,
+      // Stop logic: ignore if already stopped or cleaning up or inconsistent state
+      if (state.status == PlayerStatus.stopped ||
+          completedChapter == null ||
+          completedBookId == null) {
+        talker.debug(
+          '🛑 Ignoring completion event - stopped or inconsistent state',
+        );
+        return;
+      }
+
+      // TOKEN VALIDATION: Ensure we are still talking about the same chapter.
+      // If chapterId mismatch, it means we've already jumped to a new chapter
+      // and this is a delayed "completed" signal from the previous one.
+      if (event.chapterId != completedChapter.id) {
+        talker.warning(
+          '⚠️ Completion mismatch (Double-jump prevention): Event ID ${event.chapterId} != Current state ID ${completedChapter.id}',
+        );
+        return;
+      }
+
+      // Small delay to allow audio device/session to reset
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // Re-verify general status and chapter consistency after delay
+      if (state.status == PlayerStatus.stopped ||
+          state.chapter?.id != completedChapter.id) {
+        talker.debug(
+          '🛑 Completion canceled: Player stopped or chapter changed during delay',
+        );
+        return;
+      }
+
+      if (currentLoopMode == LoopMode.chapter) {
+        // Replay current chapter (use captured variables)
+        talker.info('🔁 Loop: Restarting chapter ${completedChapter.name}');
+        add(PlayEvent(bookName: completedBookId, chapter: completedChapter));
+      } else if (currentLoopMode == LoopMode.range) {
+        // Range check logic...
+        if (completedChapter.id.toString() == state.loopEndChapterId) {
+          talker.info(
+            '🔁 Loop Range: Reached end chapter ${completedChapter.id}, jumping back to start ${state.loopStartChapterId}',
           );
 
-          // Play Start Chapter
-          add(PlayEvent(bookName: state.bookId ?? '', chapter: startChapter));
-
-          // We need to seek to start line.
-          // PlayEvent is async... we can't easily wait here.
-          // Dispatching a SeekEvent immediately might fail if Play hasn't initialized.
-          // Solution: Trigger PlayFromPosition?
-          // Yes, PlayFromPosition is cleaner.
-          final startLine = state.loopStartLine ?? 0;
-          if (startLine < startChapter.audioLines.length) {
-            final pos = Duration(
-              milliseconds: (startChapter.audioLines[startLine].start * 1000)
-                  .toInt(),
-            );
-            // Override: use PlayFromPositionEvent
-            // Note: PlayFromPositionEvent logic also needs to apply loop constraints!
-            // Let's rely on PlayFromPositionEvent and update it to apply constraints too.
-            add(
-              PlayFromPositionEvent(
-                bookName: state.bookId ?? '',
-                chapter: startChapter,
-                position: pos,
-              ),
-            );
-            return; // Done
-          }
-        } else {
-          // In Start or Middle chapter -> Auto Advance
-          if (state.playlist.isNotEmpty && state.chapter != null) {
-            final currentIndex = state.playlist.indexWhere(
-              (c) => c.id == state.chapter!.id,
-            );
-            if (currentIndex != -1 &&
-                currentIndex < state.playlist.length - 1) {
-              final nextChapter = state.playlist[currentIndex + 1];
-              if (state.bookId != null) {
-                add(PlayEvent(bookName: state.bookId!, chapter: nextChapter));
-              }
-            } else {
-              emit(state.copyWith(status: PlayerStatus.stopped));
+          // SAFE FIND: Use a for loop instead of firstWhere to avoid complex type mismatch crashes
+          // like 'type () => Chapter is not a subtype of () => ChapterModel'.
+          Chapter startChapter = completedChapter;
+          for (final c in completedPlaylist) {
+            if (c.id.toString() == state.loopStartChapterId) {
+              startChapter = c;
+              break;
             }
+          }
+
+          final startLine = state.loopStartLine ?? 0;
+          final pos = (startLine < startChapter.audioLines.length)
+              ? Duration(
+                  milliseconds:
+                      (startChapter.audioLines[startLine].start * 1000).toInt(),
+                )
+              : Duration.zero;
+
+          add(
+            PlayFromPositionEvent(
+              bookName: completedBookId,
+              chapter: startChapter,
+              position: pos,
+            ),
+          );
+        } else {
+          // Advance to next chapter within range
+          talker.info('➡️ Loop Range: Advancing from ${completedChapter.name}');
+          final currentIndex = completedPlaylist.indexWhere(
+            (c) => c.id == completedChapter.id,
+          );
+          if (currentIndex != -1 &&
+              currentIndex < completedPlaylist.length - 1) {
+            final nextChapter = completedPlaylist[currentIndex + 1];
+            talker.info(
+              '⏭️ Range Advance: Next chapter is ${nextChapter.name}',
+            );
+            add(PlayEvent(bookName: completedBookId, chapter: nextChapter));
+          } else {
+            talker.warning(
+              '⏹️ Loop Range: End of playlist reached WITHOUT matching loopEndChapterId (${state.loopEndChapterId}). '
+              'Current Chapter ID: ${completedChapter.id}, Playlist IDs: ${completedPlaylist.map((c) => c.id).toList()}',
+            );
+            emit(state.copyWith(status: PlayerStatus.stopped));
           }
         }
       } else {
         // Auto-advance logic (Loop Off)
-        talker.debug('➡️ Auto-advance logic (Loop Off)');
-        if (state.playlist.isNotEmpty && state.chapter != null) {
-          final currentIndex = state.playlist.indexWhere(
-            (c) => c.id == state.chapter!.id,
+        talker.info('➡️ Auto-advance logic (Loop Off)');
+        if (completedPlaylist.isNotEmpty) {
+          final currentIndex = completedPlaylist.indexWhere(
+            (c) => c.id == completedChapter.id,
           );
           talker.debug(
-            '📍 Current Index: $currentIndex / ${state.playlist.length}',
+            '📍 Captured Current Index: $currentIndex / ${completedPlaylist.length}',
           );
 
-          if (currentIndex != -1 && currentIndex < state.playlist.length - 1) {
-            final nextChapter = state.playlist[currentIndex + 1];
-            if (state.bookId != null) {
-              talker.debug('⏭️ Advancing to next chapter: ${nextChapter.name}');
-              add(PlayEvent(bookName: state.bookId!, chapter: nextChapter));
-            } else {
-              talker.warning('⚠️ BookId missing for auto-advance');
-              emit(state.copyWith(status: PlayerStatus.stopped));
-            }
+          if (currentIndex != -1 &&
+              currentIndex < completedPlaylist.length - 1) {
+            final nextChapter = completedPlaylist[currentIndex + 1];
+            talker.info('⏭️ Advancing to next chapter: ${nextChapter.name}');
+            add(PlayEvent(bookName: completedBookId, chapter: nextChapter));
           } else {
             talker.info(
               '🏁 End of playlist reached or chapter not found in list',
@@ -208,7 +252,7 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
             emit(state.copyWith(status: PlayerStatus.stopped));
           }
         } else {
-          talker.debug('⏹️ Playlist empty or no current chapter, stopping');
+          talker.debug('⏹️ Playlist empty, stopping');
           emit(state.copyWith(status: PlayerStatus.stopped));
         }
       }
@@ -334,6 +378,7 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
           loopEndLine: endLine,
           loopStartChapterId: startChapterId,
           loopEndChapterId: endChapterId,
+          playlist: event.playlist ?? state.playlist,
         ),
       );
 

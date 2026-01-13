@@ -24,7 +24,13 @@ class PlayEvent extends PlayerEvent {
   List<Object> get props => [bookName, chapter, playlist ?? []];
 }
 
-class InternalPlaybackCompleteEvent extends PlayerEvent {}
+class InternalPlaybackCompleteEvent extends PlayerEvent {
+  final int chapterId;
+  const InternalPlaybackCompleteEvent({required this.chapterId});
+
+  @override
+  List<Object> get props => [chapterId];
+}
 
 class PlayFromPositionEvent extends PlayerEvent {
   final String bookName;
@@ -96,12 +102,14 @@ class SetLoopRangeEvent extends PlayerEvent {
   final int endLine;
   final String? startChapterId;
   final String? endChapterId;
+  final List<Chapter>? playlist;
 
   const SetLoopRangeEvent({
     required this.startLine,
     required this.endLine,
     this.startChapterId,
     this.endChapterId,
+    this.playlist,
   });
 
   @override
@@ -110,6 +118,7 @@ class SetLoopRangeEvent extends PlayerEvent {
     endLine,
     startChapterId ?? '',
     endChapterId ?? '',
+    playlist ?? [],
   ];
 }
 

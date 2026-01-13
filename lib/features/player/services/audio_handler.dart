@@ -11,6 +11,7 @@ class AudioPlayerHandler extends BaseAudioHandler
   Duration? _loopStart;
   Duration? _loopEnd;
   bool _autoLoop = true;
+  bool _isManuallyCompleted = false;
 
   @override
   Future<void> stop() => _audioPlayer.stop();
@@ -28,6 +29,28 @@ class AudioPlayerHandler extends BaseAudioHandler
   }
 
   AudioPlayerHandler() {
+    // Configure global audio context for background support on iOS
+    AudioPlayer.global.setAudioContext(
+      AudioContext(
+        iOS: AudioContextIOS(
+          category: AVAudioSessionCategory.playback,
+          options: {
+            AVAudioSessionOptions.mixWithOthers,
+            AVAudioSessionOptions.defaultToSpeaker,
+            AVAudioSessionOptions.allowBluetooth,
+            AVAudioSessionOptions.allowBluetoothA2DP,
+          },
+        ),
+        android: AudioContextAndroid(
+          isSpeakerphoneOn: true,
+          stayAwake: true,
+          contentType: AndroidContentType.music,
+          usageType: AndroidUsageType.media,
+          audioFocus: AndroidAudioFocus.gain,
+        ),
+      ),
+    );
+
     // Listen to playback state events from the audio player
     _audioPlayer.onPlayerStateChanged.listen(_propagatePlayerState);
     _audioPlayer.onPositionChanged.listen((position) {
@@ -43,6 +66,7 @@ class AudioPlayerHandler extends BaseAudioHandler
           // Treat as completion
           pause();
           seek(_loopEnd!); // Visual feedback
+          _isManuallyCompleted = true;
           playbackState.add(
             playbackState.value.copyWith(
               processingState: AudioProcessingState.completed,
@@ -66,11 +90,15 @@ class AudioPlayerHandler extends BaseAudioHandler
 
     // Handle audio session completion
     _audioPlayer.onPlayerComplete.listen((_) {
-      playbackState.add(
-        playbackState.value.copyWith(
-          processingState: AudioProcessingState.completed,
-        ),
-      );
+      _isManuallyCompleted = true;
+      if (playbackState.value.processingState !=
+          AudioProcessingState.completed) {
+        playbackState.add(
+          playbackState.value.copyWith(
+            processingState: AudioProcessingState.completed,
+          ),
+        );
+      }
     });
   }
 
@@ -94,13 +122,22 @@ class AudioPlayerHandler extends BaseAudioHandler
           MediaAction.seekBackward,
         },
         androidCompactActionIndices: const [0, 1, 3],
-        processingState: const {
-          PlayerState.stopped: AudioProcessingState.idle,
-          PlayerState.playing: AudioProcessingState.ready,
-          PlayerState.paused: AudioProcessingState.ready,
-          PlayerState.completed: AudioProcessingState.completed,
-          PlayerState.disposed: AudioProcessingState.idle,
-        }[_audioPlayer.state]!,
+        processingState: () {
+          final state = _audioPlayer.state;
+          if (state == PlayerState.completed) {
+            // ONLY broadcast completed if it was actually triggered by ending/clipping
+            return _isManuallyCompleted
+                ? AudioProcessingState.completed
+                : AudioProcessingState.ready;
+          }
+          return const {
+            PlayerState.stopped: AudioProcessingState.idle,
+            PlayerState.playing: AudioProcessingState.ready,
+            PlayerState.paused: AudioProcessingState.ready,
+            PlayerState.completed: AudioProcessingState.completed,
+            PlayerState.disposed: AudioProcessingState.idle,
+          }[state]!;
+        }(),
         playing: playing,
         updatePosition: _currentPosition,
         bufferedPosition: _currentPosition,
@@ -121,6 +158,7 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   Future<void> playFromFile(String filePath, MediaItem item) async {
     mediaItem.add(item);
+    _isManuallyCompleted = false;
 
     // Explicitly transition out of completed/idle state before starting
     playbackState.add(
@@ -130,6 +168,6 @@ class AudioPlayerHandler extends BaseAudioHandler
     );
 
     await _audioPlayer.play(DeviceFileSource(filePath));
-    _broadcastState();
+    // Skip manual _broadcastState() here to avoid stale state races
   }
 }

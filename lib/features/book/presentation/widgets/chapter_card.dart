@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_cubit.dart';
 import 'package:rzi_hifdhapp/features/settings/presentation/cubit/theme_state.dart';
 import 'dart:ui' as ui;
@@ -68,12 +69,27 @@ class _ChapterCardState extends State<ChapterCard> {
       talker.debug(
         '🎧 Player Mode: audioLines count = ${widget.chapter.audioLines.length}',
       );
-      context.read<PlayerBloc>().positionStream.listen((position) {
+      _positionSub = context.read<PlayerBloc>().positionStream.listen((
+        position,
+      ) {
         if (mounted && widget.chapter.audioLines.isNotEmpty) {
           _updateCurrentPlayingLine(position.inSeconds.toDouble());
         }
       });
     }
+  }
+
+  StreamSubscription? _positionSub;
+
+  @override
+  void dispose() {
+    _positionSub?.cancel();
+    _speechService.statusNotifier.removeListener(_onStatusChange);
+    _speechService.errorNotifier.removeListener(_onError);
+    _speechService.recognizedWordsNotifier.removeListener(
+      _onRecognizedWordsChange,
+    );
+    super.dispose();
   }
 
   void _updateCurrentPlayingLine(double currentSeconds) {
@@ -121,16 +137,6 @@ class _ChapterCardState extends State<ChapterCard> {
       _lineStates[i] = LineState.neutral;
       _attempts[i] = 0;
     }
-  }
-
-  @override
-  void dispose() {
-    _speechService.statusNotifier.removeListener(_onStatusChange);
-    _speechService.errorNotifier.removeListener(_onError);
-    _speechService.recognizedWordsNotifier.removeListener(
-      _onRecognizedWordsChange,
-    );
-    super.dispose();
   }
 
   void _onRecognizedWordsChange() {
@@ -625,6 +631,7 @@ class _ChapterCardState extends State<ChapterCard> {
                       SetLoopRangeEvent(
                         startLine: _currentPlayingLine!,
                         endLine: _currentPlayingLine!,
+                        playlist: widget.allChapters,
                       ),
                     );
                     // SetLoopRange sets mode to Range
@@ -692,7 +699,11 @@ class _ChapterCardState extends State<ChapterCard> {
                     start >= 0 &&
                     end < widget.chapter.audioLines.length) {
                   context.read<PlayerBloc>().add(
-                    SetLoopRangeEvent(startLine: start, endLine: end),
+                    SetLoopRangeEvent(
+                      startLine: start,
+                      endLine: end,
+                      playlist: widget.allChapters,
+                    ),
                   );
                 }
                 Navigator.pop(ctx);
@@ -880,6 +891,7 @@ class _ChapterCardState extends State<ChapterCard> {
                           loopEndLine: endLine,
                           startChapterId: startChapter.id.toString(),
                           endChapterId: endChapter.id.toString(),
+                          playlist: widget.allChapters,
                         ),
                       );
                       Navigator.pop(ctx);
