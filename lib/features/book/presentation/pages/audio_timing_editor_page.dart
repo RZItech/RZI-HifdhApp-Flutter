@@ -1,17 +1,17 @@
-import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:audioplayers/audioplayers.dart';
-import 'package:rzi_hifdhapp/features/book/domain/entities/audio_line_range.dart';
+import 'dart:io';
+import 'package:just_audio/just_audio.dart';
 import 'package:talker_flutter/talker_flutter.dart';
 import 'package:rzi_hifdhapp/core/di/injection_container.dart';
+import 'package:rzi_hifdhapp/features/book/domain/entities/audio_line_range.dart';
+import 'dart:async'; // For StreamSubscription
 
 final talker = sl<Talker>();
 
 class AudioTimingEditorPage extends StatefulWidget {
   final File audioFile;
-  final List<String> lines;
-  final List<AudioLineRange>? initialRanges;
+  final List lines;
+  final List? initialRanges;
 
   const AudioTimingEditorPage({
     super.key,
@@ -21,7 +21,7 @@ class AudioTimingEditorPage extends StatefulWidget {
   });
 
   @override
-  State<AudioTimingEditorPage> createState() => _AudioTimingEditorPageState();
+  State createState() => _AudioTimingEditorPageState();
 }
 
 class _AudioTimingEditorPageState extends State<AudioTimingEditorPage> {
@@ -33,7 +33,7 @@ class _AudioTimingEditorPageState extends State<AudioTimingEditorPage> {
   late List<double?> _endTimes;
 
   // Playback State
-  PlayerState _playerState = PlayerState.stopped;
+  ProcessingState _playerState = ProcessingState.idle;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   int _currentLineIndex = 0;
@@ -62,38 +62,35 @@ class _AudioTimingEditorPageState extends State<AudioTimingEditorPage> {
   }
 
   void _setupPlayer() async {
-    _stateSub = _player.onPlayerStateChanged.listen((state) {
-      if (mounted) setState(() => _playerState = state);
+    _stateSub = _player.playerStateStream.listen((state) {
+      if (mounted) setState(() => _playerState = state.processingState);
     });
 
-    _posSub = _player.onPositionChanged.listen((pos) {
+    _posSub = _player.positionStream.listen((pos) {
       if (mounted && !_isDraggingSlider) {
         setState(() => _position = pos);
         _updateActiveLine(pos);
       }
     });
 
-    _durSub = _player.onDurationChanged.listen((dur) {
-      if (mounted) setState(() => _duration = dur);
+    _durSub = _player.durationStream.listen((dur) {
+      if (mounted && dur != null) setState(() => _duration = dur);
     });
 
     if (!widget.audioFile.existsSync()) {
-      talker.warning('❌ Audio file does not exist: ${widget.audioFile.path}');
+      talker.warning('Audio file does not exist: ${widget.audioFile.path}');
     } else {
-      talker.debug('✅ Audio file exists: ${widget.audioFile.path}');
+      talker.debug('Audio file exists: ${widget.audioFile.path}');
       try {
-        await _player.setSource(DeviceFileSource(widget.audioFile.path));
+        await _player.setAudioSource(AudioSource.file(widget.audioFile.path));
       } catch (e) {
-        talker.error('❌ Error setting player source: $e');
-        // Fallback to UrlSource if DeviceFileSource fails
-        final uri = Uri.file(widget.audioFile.path);
-        await _player.setSource(UrlSource(uri.toString()));
+        talker.error('Error setting player source: $e');
       }
     }
   }
 
   void _updateActiveLine(Duration pos) {
-    if (_playerState != PlayerState.playing) return;
+    if (_playerState != ProcessingState.ready) return;
 
     // In record mode, we don't auto-jump based on time unless we are just "previewing".
     // But implementation logic is:
@@ -112,13 +109,13 @@ class _AudioTimingEditorPageState extends State<AudioTimingEditorPage> {
   }
 
   void _togglePlay() async {
-    if (_playerState == PlayerState.playing) {
+    if (_player.playing) {
       await _player.pause();
     } else {
-      if (_playerState == PlayerState.completed) {
+      if (_playerState == ProcessingState.completed) {
         await _player.seek(Duration.zero);
       }
-      await _player.resume();
+      await _player.play();
     }
   }
 
@@ -163,7 +160,7 @@ class _AudioTimingEditorPageState extends State<AudioTimingEditorPage> {
 
   void _saveAndExit() {
     // Construct results
-    List<AudioLineRange> results = [];
+    List results = [];
     for (int i = 0; i < widget.lines.length; i++) {
       double start = _startTimes[i] ?? 0.0;
       double end =
@@ -219,9 +216,7 @@ class _AudioTimingEditorPageState extends State<AudioTimingEditorPage> {
                   children: [
                     IconButton(
                       icon: Icon(
-                        _playerState == PlayerState.playing
-                            ? Icons.pause
-                            : Icons.play_arrow,
+                        _player.playing ? Icons.pause : Icons.play_arrow,
                       ),
                       onPressed: _togglePlay,
                     ),
@@ -332,9 +327,7 @@ class _AudioTimingEditorPageState extends State<AudioTimingEditorPage> {
           _currentLineIndex >= widget.lines.length ? 'Done' : 'Mark Next Line',
         ),
         icon: const Icon(Icons.touch_app),
-        backgroundColor: _playerState == PlayerState.playing
-            ? Colors.redAccent
-            : Colors.grey,
+        backgroundColor: _player.playing ? Colors.redAccent : Colors.grey,
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );

@@ -12,7 +12,7 @@ import 'package:rzi_hifdhapp/features/book/data/models/book_model.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_bloc.dart';
 import 'package:rzi_hifdhapp/features/book/presentation/bloc/book_state.dart';
 import 'package:rzi_hifdhapp/features/book/data/models/draft_book.dart';
-import 'package:rzi_hifdhapp/features/book/domain/entities/audio_line_range.dart';
+import 'package:rzi_hifdhapp/features/book/domain/entities/audio_line_range.dart'; // Proper domain import
 import 'package:rzi_hifdhapp/features/book/presentation/pages/audio_timing_editor_page.dart';
 import 'package:talker_flutter/talker_flutter.dart';
 import 'package:rzi_hifdhapp/core/di/injection_container.dart' as di;
@@ -45,6 +45,7 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
   late String _draftId;
   final TextEditingController _nameController = TextEditingController();
   final List<CreatorChapter> _chapters = [];
+  final Map<String, String> _normalizationRules = {};
 
   @override
   void initState() {
@@ -59,7 +60,7 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
             arabic: c.arabic,
             translation: c.translation,
             audioPath: c.audioPath,
-            audioLines: c.audioLines,
+            audioLines: c.audioLines, // Safe cast from dynamic
           ),
         ),
       );
@@ -129,6 +130,23 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
     setState(() {
       _chapters.removeAt(index);
     });
+  }
+
+  void _showNormalizationEditor() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NormalizationEditorPage(
+          initialRules: Map.from(_normalizationRules),
+          onSave: (rules) {
+            setState(() {
+              _normalizationRules.clear();
+              _normalizationRules.addAll(rules);
+            });
+          },
+        ),
+      ),
+    );
   }
 
   void _showImportOptions() {
@@ -213,12 +231,10 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
       );
       await extractDir.create();
 
-      // Extract ZIP
       final bytes = await file.readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
       extractArchiveToDisk(archive, extractDir.path);
 
-      // Read data.yml
       final dataFile = File('${extractDir.path}/data.yml');
       if (!await dataFile.exists()) {
         throw Exception('Invalid book file: data.yml not found');
@@ -267,11 +283,7 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
           final destinationPath = '${audioDir.path}/$fileName';
           await sourceFile.copy(destinationPath);
           draftAudioPath = destinationPath;
-          di.sl<Talker>().info(
-            'Copied audio for ${chapter.name}: $destinationPath',
-          );
-        } else {
-          di.sl<Talker>().warning('Source audio not found: $sourcePath');
+          di.sl<Talker>().info('Copied audio for ${chapter.name}');
         }
       }
 
@@ -281,7 +293,7 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
           arabic: chapter.arabicText,
           translation: chapter.englishText,
           audioPath: draftAudioPath,
-          audioLines: chapter.audioLines,
+          audioLines: chapter.audioLines as List<AudioLineRange>?, // Safe cast
         ),
       );
     }
@@ -290,6 +302,8 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
       _nameController.text = book.name;
       _chapters.clear();
       _chapters.addAll(newChapters);
+      _normalizationRules.clear();
+      _normalizationRules.addAll(book.normalizationRules);
     });
   }
 
@@ -309,9 +323,16 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
     }
 
     try {
-      // 1. Generate YAML Content
       final buffer = StringBuffer();
       buffer.writeln('name: "${_nameController.text.trim()}"');
+
+      // Add normalization rules if they exist
+      if (_normalizationRules.isNotEmpty) {
+        buffer.writeln('normalize: |');
+        _normalizationRules.forEach((from, to) {
+          buffer.writeln('  $from>$to');
+        });
+      }
 
       final archive = Archive();
 
@@ -322,7 +343,6 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
         buffer.writeln('$chapterKey:');
         buffer.writeln('  name: "${chapter.name}"');
 
-        // Handle multiline strings safely for YAML
         buffer.writeln('  arabic: |');
         for (var line in chapter.arabic.split('\n')) {
           if (line.trim().isNotEmpty) buffer.writeln('    $line');
@@ -339,13 +359,11 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
             final fileName = 'audio_${i + 1}.mp3';
             buffer.writeln('  audio: "$fileName"');
 
-            // Add Audio to Archive
             final audioBytes = await audioFile.readAsBytes();
             archive.addFile(
               ArchiveFile(fileName, audioBytes.length, audioBytes),
             );
 
-            // Add Audio Lines if present
             if (chapter.audioLines != null && chapter.audioLines!.isNotEmpty) {
               buffer.writeln('  audio_lines: |');
               for (final range in chapter.audioLines!) {
@@ -362,25 +380,18 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
         }
       }
 
-      // 2. Add data.yml to archive
       List<int> utf8Bytes = utf8.encode(buffer.toString());
-
       archive.addFile(ArchiveFile('data.yml', utf8Bytes.length, utf8Bytes));
 
-      // 3. Create Zip
       final zipEncoder = ZipEncoder();
       final zipBytes = zipEncoder.encode(archive);
 
-      // 4. Save to Temp
       final tempDir = await getTemporaryDirectory();
-      // User said "export books with the correct format". The import logic looks for .zip
       final fileName =
           '${_nameController.text.trim().replaceAll(" ", "_")}.zip';
       final file = File('${tempDir.path}/$fileName');
       await file.writeAsBytes(zipBytes);
 
-      // 5. Share
-      // ignoring deprecation as SharePlus.shareXFiles is not static and instance API is unclear without docs.
       // ignore: deprecated_member_use
       await Share.shareXFiles([
         XFile(file.path),
@@ -430,6 +441,23 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
                 ),
               ),
               const SizedBox(height: 16),
+
+              // Normalization Rules Button
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.tune),
+                  title: const Text('Normalization Rules'),
+                  subtitle: Text(
+                    _normalizationRules.isEmpty
+                        ? 'No custom rules'
+                        : '${_normalizationRules.length} rule(s) configured',
+                  ),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: _showNormalizationEditor,
+                ),
+              ),
+
+              const SizedBox(height: 16),
               Expanded(
                 child: ListView.builder(
                   itemCount: _chapters.length,
@@ -474,6 +502,197 @@ class _BookCreatorPageState extends State<BookCreatorPage> {
   }
 }
 
+// Normalization Editor Page
+class NormalizationEditorPage extends StatefulWidget {
+  final Map<String, String> initialRules;
+  final Function(Map<String, String>) onSave;
+
+  const NormalizationEditorPage({
+    super.key,
+    required this.initialRules,
+    required this.onSave,
+  });
+
+  @override
+  State<NormalizationEditorPage> createState() =>
+      _NormalizationEditorPageState();
+}
+
+class _NormalizationEditorPageState extends State<NormalizationEditorPage> {
+  late Map<String, String> _rules;
+
+  @override
+  void initState() {
+    super.initState();
+    _rules = Map.from(widget.initialRules);
+  }
+
+  void _addRule() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        String from = '';
+        String to = '';
+        return AlertDialog(
+          title: const Text('Add Normalization Rule'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                decoration: const InputDecoration(
+                  labelText: 'From (original text)',
+                  hintText: 'e.g., أ',
+                ),
+                textDirection: TextDirection.rtl,
+                onChanged: (val) => from = val,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                decoration: const InputDecoration(
+                  labelText: 'To (replacement)',
+                  hintText: 'e.g., ا',
+                ),
+                textDirection: TextDirection.rtl,
+                onChanged: (val) => to = val,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Example: Replace "أ" with "ا" to normalize Hamza on Alif',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (from.isNotEmpty && to.isNotEmpty) {
+                  setState(() {
+                    _rules[from] = to;
+                  });
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _removeRule(String key) {
+    setState(() {
+      _rules.remove(key);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Normalization Rules'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.save),
+            onPressed: () {
+              widget.onSave(_rules);
+              Navigator.pop(context);
+            },
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Card(
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.grey[600]
+                  : Colors.grey[400],
+              child: const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.blue),
+                        SizedBox(width: 8),
+                        Text(
+                          'About Normalization',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'These rules will be applied when comparing your recitation with the text. Use them to handle spelling variations or special cases.',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _rules.isEmpty
+                ? const Center(child: Text('No rules yet. Tap + to add one.'))
+                : ListView.builder(
+                    itemCount: _rules.length,
+                    itemBuilder: (context, index) {
+                      final entry = _rules.entries.elementAt(index);
+                      return Card(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        child: ListTile(
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  entry.key,
+                                  textDirection: TextDirection.rtl,
+                                  style: const TextStyle(fontSize: 18),
+                                ),
+                              ),
+                              const Icon(Icons.arrow_forward, size: 16),
+                              Expanded(
+                                child: Text(
+                                  entry.value,
+                                  textDirection: TextDirection.rtl,
+                                  style: const TextStyle(fontSize: 18),
+                                ),
+                              ),
+                            ],
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () => _removeRule(entry.key),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _addRule,
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+// Keep the existing ChapterEditorPage unchanged...
 class ChapterEditorPage extends StatefulWidget {
   final CreatorChapter? initialChapter;
   final String draftId;

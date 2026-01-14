@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:audio_service/audio_service.dart';
-import 'package:audioplayers/audioplayers.dart';
+import 'package:audio_session/audio_session.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:talker_flutter/talker_flutter.dart';
 import 'package:rzi_hifdhapp/core/di/injection_container.dart';
 
@@ -7,10 +9,10 @@ final talker = sl<Talker>();
 
 class AudioPlayerHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final AudioPlayer _player = AudioPlayer();
   Duration _currentPosition = Duration.zero;
 
-  Stream<Duration> get onPositionChanged => _audioPlayer.onPositionChanged;
+  Stream<Duration> get positionStream => _player.positionStream;
 
   Duration? _loopStart;
   Duration? _loopEnd;
@@ -19,16 +21,66 @@ class AudioPlayerHandler extends BaseAudioHandler
   // Track whether we've signaled completion for this playback session
   bool _hasSignaledCompletion = false;
 
-  @override
-  Future<void> stop() async {
-    await _audioPlayer.stop();
-    _hasSignaledCompletion = false;
+  AudioPlayerHandler() {
+    // Configure audio session for background playback
+    _configureAudioSession();
+
+    // Listen to player state changes
+    _player.playbackEventStream.listen(_broadcastState);
+
+    // Listen to position updates for loop boundary enforcement
+    _player.positionStream.listen((position) {
+      _currentPosition = position;
+      _enforceLoopBoundaries(position);
+    });
+
+    // Handle natural audio completion
+    _player.processingStateStream.listen((state) {
+      if (state == ProcessingState.completed) {
+        _handlePlayerComplete();
+      }
+    });
+
+    // Listen to duration changes to update media item
+    _player.durationStream.listen(_handleDurationChange);
   }
 
-  @override
-  Future<void> setSpeed(double speed) async {
-    await _audioPlayer.setPlaybackRate(speed);
-    _broadcastState();
+  Future<void> _configureAudioSession() async {
+    final session = await AudioSession.instance;
+    await session.configure(
+      AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playback,
+        avAudioSessionCategoryOptions:
+            AVAudioSessionCategoryOptions.allowBluetooth |
+            AVAudioSessionCategoryOptions.defaultToSpeaker |
+            AVAudioSessionCategoryOptions.mixWithOthers,
+        avAudioSessionMode: AVAudioSessionMode.defaultMode,
+        avAudioSessionRouteSharingPolicy:
+            AVAudioSessionRouteSharingPolicy.defaultPolicy,
+        androidAudioAttributes: AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.music,
+          flags: AndroidAudioFlags.none,
+          usage: AndroidAudioUsage.media,
+        ),
+        androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+        androidWillPauseWhenDucked: true,
+      ),
+    );
+  }
+
+  void _handlePlayerComplete() {
+    // Signal completion only once per playback session
+    if (!_hasSignaledCompletion) {
+      _hasSignaledCompletion = true;
+      _signalCompletion();
+    }
+  }
+
+  void _handleDurationChange(Duration? duration) {
+    final item = mediaItem.value;
+    if (item != null && duration != null) {
+      mediaItem.add(item.copyWith(duration: duration));
+    }
   }
 
   /// Configure loop boundaries for the current audio file
@@ -41,66 +93,23 @@ class AudioPlayerHandler extends BaseAudioHandler
     _autoLoop = autoLoop;
   }
 
-  AudioPlayerHandler() {
-    // Configure audio context for background playback
-    AudioPlayer.global.setAudioContext(
-      AudioContext(
-        iOS: AudioContextIOS(
-          category: AVAudioSessionCategory.playback,
-          options: {
-            AVAudioSessionOptions.mixWithOthers,
-            AVAudioSessionOptions.defaultToSpeaker,
-            AVAudioSessionOptions.allowBluetooth,
-            AVAudioSessionOptions.allowBluetoothA2DP,
-          },
-        ),
-        android: AudioContextAndroid(
-          isSpeakerphoneOn: true,
-          stayAwake: true,
-          contentType: AndroidContentType.music,
-          usageType: AndroidUsageType.media,
-          audioFocus: AndroidAudioFocus.gain,
-        ),
-      ),
-    );
-
-    // Listen to player state changes
-    _audioPlayer.onPlayerStateChanged.listen(_handlePlayerStateChange);
-
-    // Listen to position updates for loop boundary enforcement
-    _audioPlayer.onPositionChanged.listen(_handlePositionUpdate);
-
-    // Listen to duration changes to update media item
-    _audioPlayer.onDurationChanged.listen(_handleDurationChange);
-
-    // Handle natural audio completion
-    _audioPlayer.onPlayerComplete.listen(_handlePlayerComplete);
-  }
-
-  void _handlePlayerStateChange(PlayerState state) {
-    _broadcastState();
-  }
-
-  void _handlePositionUpdate(Duration position) {
-    _currentPosition = position;
-    _broadcastState();
-
-    // Enforce loop boundaries
-    _enforceLoopBoundaries(position);
-  }
-
-  void _handleDurationChange(Duration duration) {
-    final item = mediaItem.value;
-    if (item != null) {
-      mediaItem.add(item.copyWith(duration: duration));
+  /// Enforce loop boundaries during playback
+  void _enforceLoopBoundaries(Duration position) {
+    // Check if we've reached the end boundary
+    if (_loopEnd != null && position >= _loopEnd!) {
+      if (_autoLoop && _loopStart != null) {
+        // Single-chapter loop: automatically loop back to start
+        _player.seek(_loopStart!);
+      } else {
+        // Cross-chapter loop or end of clip: signal completion
+        // The bloc will handle transitioning to the next chapter
+        _signalCompletion();
+        pause(); // Pause at the end position for visual feedback
+      }
     }
-  }
-
-  void _handlePlayerComplete(_) {
-    // Signal completion only once per playback session
-    if (!_hasSignaledCompletion) {
-      _hasSignaledCompletion = true;
-      _signalCompletion();
+    // Enforce start boundary if user seeks backward in auto-loop mode
+    else if (_autoLoop && _loopStart != null && position < _loopStart!) {
+      _player.seek(_loopStart!);
     }
   }
 
@@ -117,17 +126,9 @@ class AudioPlayerHandler extends BaseAudioHandler
     );
   }
 
-  void _broadcastState() {
-    final playing = _audioPlayer.state == PlayerState.playing;
-    final currentState = _audioPlayer.state;
-
-    // Determine the appropriate processing state
-    AudioProcessingState processingState;
-    if (currentState == PlayerState.completed && _hasSignaledCompletion) {
-      processingState = AudioProcessingState.completed;
-    } else {
-      processingState = _mapPlayerStateToProcessingState(currentState);
-    }
+  void _broadcastState([PlaybackEvent? event]) {
+    final playing = _player.playing;
+    final processingState = _player.processingState;
 
     playbackState.add(
       playbackState.value.copyWith(
@@ -137,46 +138,58 @@ class AudioPlayerHandler extends BaseAudioHandler
           MediaControl.stop,
           MediaControl.fastForward,
         ],
-        systemActions: const {
+        systemActions: {
           MediaAction.seek,
           MediaAction.seekForward,
           MediaAction.seekBackward,
         },
         androidCompactActionIndices: const [0, 1, 3],
-        processingState: processingState,
+        processingState: _mapProcessingState(processingState),
         playing: playing,
         updatePosition: _currentPosition,
-        bufferedPosition: _currentPosition,
-        speed: _audioPlayer.playbackRate,
-        queueIndex: 0,
+        bufferedPosition: _player.bufferedPosition,
+        speed: _player.speed,
+        queueIndex: event?.currentIndex,
       ),
     );
   }
 
-  AudioProcessingState _mapPlayerStateToProcessingState(PlayerState state) {
+  AudioProcessingState _mapProcessingState(ProcessingState state) {
     switch (state) {
-      case PlayerState.stopped:
-      case PlayerState.disposed:
+      case ProcessingState.idle:
         return AudioProcessingState.idle;
-      case PlayerState.playing:
-      case PlayerState.paused:
+      case ProcessingState.loading:
+        return AudioProcessingState.buffering;
+      case ProcessingState.buffering:
+        return AudioProcessingState.buffering;
+      case ProcessingState.ready:
         return AudioProcessingState.ready;
-      case PlayerState.completed:
-        // Only mark as completed if we've signaled it
-        return _hasSignaledCompletion
-            ? AudioProcessingState.completed
-            : AudioProcessingState.ready;
+      case ProcessingState.completed:
+        return AudioProcessingState.completed;
     }
   }
 
   @override
-  Future<void> play() => _audioPlayer.resume();
+  Future<void> play() => _player.play();
 
   @override
-  Future<void> pause() => _audioPlayer.pause();
+  Future<void> pause() => _player.pause();
 
   @override
-  Future<void> seek(Duration position) => _audioPlayer.seek(position);
+  Future<void> seek(Duration position) => _player.seek(position);
+
+  @override
+  Future<void> setSpeed(double speed) async {
+    await _player.setSpeed(speed);
+    _broadcastState();
+  }
+
+  @override
+  Future<void> stop() async {
+    await _player.stop();
+    _hasSignaledCompletion = false;
+    super.stop();
+  }
 
   /// Start playing a new audio file
   ///
@@ -193,7 +206,6 @@ class AudioPlayerHandler extends BaseAudioHandler
     _hasSignaledCompletion = false;
 
     // Transition to buffering state before starting playback
-    // This ensures the UI shows loading status and prevents stale state
     playbackState.add(
       playbackState.value.copyWith(
         processingState: AudioProcessingState.buffering,
@@ -202,14 +214,12 @@ class AudioPlayerHandler extends BaseAudioHandler
     );
 
     try {
-      // Set source first (loads async)
-      await _audioPlayer.setSource(DeviceFileSource(filePath));
-
-      // Seek to initial position
-      await _audioPlayer.seek(initialPosition);
-
-      // Start playback
-      await _audioPlayer.resume();
+      // Set source (local file) with initial position
+      await _player.setAudioSource(
+        AudioSource.file(filePath),
+        initialPosition: initialPosition,
+      );
+      await _player.play();
     } catch (e) {
       talker.error('Playback start failed: $e');
       playbackState.add(
@@ -217,29 +227,6 @@ class AudioPlayerHandler extends BaseAudioHandler
           processingState: AudioProcessingState.error,
         ),
       );
-    }
-
-    // State will be broadcast automatically through the state change listener
-  }
-
-  /// Enforce loop boundaries during playback
-  void _enforceLoopBoundaries(Duration position) {
-    // Check if we've reached the end boundary
-    if (_loopEnd != null && position >= _loopEnd!) {
-      if (_autoLoop && _loopStart != null) {
-        // Single-chapter loop: automatically loop back to start
-        seek(_loopStart!);
-      } else {
-        // Cross-chapter loop or end of clip: signal completion
-        // The bloc will handle transitioning to the next chapter
-        _signalCompletion();
-        // Removed pause() here to avoid interrupting auto-resume on loop reset
-      }
-    }
-    // Enforce start boundary if user seeks backward in auto-loop mode
-    // This prevents the user from accidentally playing content before the loop start
-    else if (_autoLoop && _loopStart != null && position < _loopStart!) {
-      seek(_loopStart!);
     }
   }
 }

@@ -107,7 +107,7 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
 
   Stream<Duration> get positionStream {
     if (audioHandler is AudioPlayerHandler) {
-      return (audioHandler as AudioPlayerHandler).onPositionChanged;
+      return (audioHandler as AudioPlayerHandler).positionStream;
     }
     return const Stream.empty();
   }
@@ -473,7 +473,7 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
       // Add other fields if needed, like artist or artUri
     );
 
-    // Cast to AudioPlayerHandler and call with initialPosition
+    // Cast and call with initialPosition
     await (audioHandler as AudioPlayerHandler).playFromFile(
       audioPath,
       item,
