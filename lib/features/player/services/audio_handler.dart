@@ -1,5 +1,9 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:talker_flutter/talker_flutter.dart';
+import 'package:rzi_hifdhapp/core/di/injection_container.dart';
+
+final talker = sl<Talker>();
 
 class AudioPlayerHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
@@ -100,29 +104,6 @@ class AudioPlayerHandler extends BaseAudioHandler
     }
   }
 
-  /// Enforce loop boundaries during playback
-  void _enforceLoopBoundaries(Duration position) {
-    // Check if we've reached the end boundary
-    if (_loopEnd != null && position >= _loopEnd!) {
-      if (_autoLoop && _loopStart != null) {
-        // Single-chapter loop: automatically loop back to start
-        seek(_loopStart!);
-      } else {
-        // Cross-chapter loop or end of clip: signal completion
-        // The bloc will handle transitioning to the next chapter
-        _signalCompletion();
-
-        // Pause at the end position for visual feedback
-        pause();
-      }
-    }
-    // Enforce start boundary if user seeks backward in auto-loop mode
-    // This prevents the user from accidentally playing content before the loop start
-    else if (_autoLoop && _loopStart != null && position < _loopStart!) {
-      seek(_loopStart!);
-    }
-  }
-
   /// Signal that playback has completed
   void _signalCompletion() {
     if (_hasSignaledCompletion) return; // Already signaled
@@ -201,7 +182,11 @@ class AudioPlayerHandler extends BaseAudioHandler
   ///
   /// This resets the completion flag and transitions through buffering
   /// to ensure clean state transitions
-  Future<void> playFromFile(String filePath, MediaItem item) async {
+  Future<void> playFromFile(
+    String filePath,
+    MediaItem item, {
+    Duration initialPosition = Duration.zero,
+  }) async {
     mediaItem.add(item);
 
     // Reset completion flag for new playback session
@@ -216,9 +201,45 @@ class AudioPlayerHandler extends BaseAudioHandler
       ),
     );
 
-    // Start playback
-    await _audioPlayer.play(DeviceFileSource(filePath));
+    try {
+      // Set source first (loads async)
+      await _audioPlayer.setSource(DeviceFileSource(filePath));
+
+      // Seek to initial position
+      await _audioPlayer.seek(initialPosition);
+
+      // Start playback
+      await _audioPlayer.resume();
+    } catch (e) {
+      talker.error('Playback start failed: $e');
+      playbackState.add(
+        playbackState.value.copyWith(
+          processingState: AudioProcessingState.error,
+        ),
+      );
+    }
 
     // State will be broadcast automatically through the state change listener
+  }
+
+  /// Enforce loop boundaries during playback
+  void _enforceLoopBoundaries(Duration position) {
+    // Check if we've reached the end boundary
+    if (_loopEnd != null && position >= _loopEnd!) {
+      if (_autoLoop && _loopStart != null) {
+        // Single-chapter loop: automatically loop back to start
+        seek(_loopStart!);
+      } else {
+        // Cross-chapter loop or end of clip: signal completion
+        // The bloc will handle transitioning to the next chapter
+        _signalCompletion();
+        // Removed pause() here to avoid interrupting auto-resume on loop reset
+      }
+    }
+    // Enforce start boundary if user seeks backward in auto-loop mode
+    // This prevents the user from accidentally playing content before the loop start
+    else if (_autoLoop && _loopStart != null && position < _loopStart!) {
+      seek(_loopStart!);
+    }
   }
 }

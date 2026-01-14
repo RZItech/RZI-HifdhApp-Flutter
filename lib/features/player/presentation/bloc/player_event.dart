@@ -36,34 +36,23 @@ class PlayFromPositionEvent extends PlayerEvent {
   final String bookName;
   final Chapter chapter;
   final Duration position;
-  final int? loopStartLine;
-  final int? loopEndLine;
-  final String? startChapterId;
-  final String? endChapterId;
-  final List<Chapter>? playlist;
+  final List<Chapter> playlist;
+  final int? loopStartLine; // Optional: Start line for loop range
+  final int? loopEndLine; // Optional: End line for loop range
+  final String?
+  startChapterId; // Optional: ID of start chapter (for cross-chapter)
+  final String? endChapterId; // Optional: ID of end chapter (for cross-chapter)
 
   const PlayFromPositionEvent({
     required this.bookName,
     required this.chapter,
     required this.position,
+    required this.playlist,
     this.loopStartLine,
     this.loopEndLine,
     this.startChapterId,
     this.endChapterId,
-    this.playlist,
   });
-
-  @override
-  List<Object> get props => [
-    bookName,
-    chapter,
-    position,
-    loopStartLine ?? -1,
-    loopEndLine ?? -1,
-    startChapterId ?? '',
-    endChapterId ?? '',
-    playlist ?? [],
-  ];
 }
 
 class PauseEvent extends PlayerEvent {}
