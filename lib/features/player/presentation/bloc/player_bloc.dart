@@ -50,8 +50,8 @@ class LoopRange {
     Duration? startTime;
     Duration? endTime;
 
-    // If this is the start chapter, set the start boundary
-    if (isStartChapter(chapterId)) {
+    // Set start boundary only for single-chapter loops
+    if (isSingleChapter && isStartChapter(chapterId)) {
       if (startLine >= 0 && startLine < chapter.audioLines.length) {
         startTime = Duration(
           milliseconds: (chapter.audioLines[startLine].start * 1000).toInt(),
@@ -59,7 +59,7 @@ class LoopRange {
       }
     }
 
-    // If this is the end chapter, set the end boundary
+    // Set end boundary for end chapters
     if (isEndChapter(chapterId)) {
       if (endLine >= 0 && endLine < chapter.audioLines.length) {
         endTime = Duration(
@@ -109,7 +109,37 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
     if (audioHandler is AudioPlayerHandler) {
       return (audioHandler as AudioPlayerHandler).positionStream;
     }
+    // Fallback: could create a stream from playbackState, but UI often listens to bloc state or polls
     return const Stream.empty();
+  }
+
+  /// robust position getter that interpolates based on time
+  Duration get currentPosition {
+    // 1. Try direct access if not isolated
+    if (audioHandler is AudioPlayerHandler) {
+      return (audioHandler as AudioPlayerHandler).currentPosition;
+    }
+
+    // 2. Interpolate from PlaybackState for isolated handlers
+    final state = audioHandler.playbackState.value;
+    // value is non-null in AudioService (seeded) separate check not strictly needed but good safety
+    // if (state == null) return Duration.zero; // ValueStream always has value in AudioService
+
+    final updatePosition = state.updatePosition;
+    final updateTime = state.updateTime;
+
+    // If not playing, return the last known position
+    if (!state.playing) {
+      return updatePosition;
+    }
+
+    // Calculate elapsed time since last update
+    final elapsed = DateTime.now().difference(updateTime);
+
+    // Apply speed multiplier if needed (though usually speed is managed by player)
+    // AudioService updates usually account for speed in the stream, but manual calc needs it
+    // simple interpolation:
+    return updatePosition + (elapsed * state.speed);
   }
 
   StreamSubscription? _playbackStateSub;
@@ -119,6 +149,8 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
   // Track whether we're currently in a cross-chapter loop transition
   bool _isTransitioningChapters = false;
 
+  // Track whether we've signaled completion for the current loop end
+
   PlayerBloc({required this.audioHandler}) : super(const PlayerState()) {
     _setupPlaybackStateListener();
     _registerEventHandlers();
@@ -127,6 +159,17 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
   void _setupPlaybackStateListener() {
     _playbackStateSub = audioHandler.playbackState.listen((playbackState) {
       final derivedStatus = _derivePlayerStatus(playbackState);
+
+      // CLEAR transition flag if we've successfully started buffering or playing new content
+      // This prevents the "swallowing" of completion events for short files
+      if (_isTransitioningChapters &&
+          (playbackState.processingState == AudioProcessingState.buffering ||
+              playbackState.processingState == AudioProcessingState.ready)) {
+        _isTransitioningChapters = false;
+        talker.debug(
+          '🔄 Transition flag cleared - new state: ${playbackState.processingState}',
+        );
+      }
 
       // Handle completion - but only if we're not already transitioning
       if (_shouldHandleCompletion(playbackState) && !_isTransitioningChapters) {
@@ -202,6 +245,7 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
 
   Future<void> _onPlay(PlayEvent event, Emitter<PlayerState> emit) async {
     talker.debug('▶️ PlayEvent: ${event.chapter.name}');
+
 
     final audioPath = await _getAudioPath(event.bookName, event.chapter);
     if (!await _fileExists(audioPath)) {
@@ -337,12 +381,15 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
 
     final completedId = completedChapter.id.toString();
 
+    talker.debug('🔁 Range completion check: completed=${completedChapter.name} (ID: $completedId), endChapterId=${loopRange.endChapterId}');
+
     // Check if we've reached the end of the loop range
     if (loopRange.isEndChapter(completedId)) {
       talker.info('🔁 Loop range complete, jumping back to start');
       await _restartLoopRange(loopRange, bookId, playlist);
     } else {
       // Advance to next chapter within the range
+      talker.debug('🔁 Advancing within loop range');
       await _advanceWithinLoopRange(
         completedChapter,
         loopRange,
@@ -356,9 +403,11 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
   Future<void> _restartLoopRange(
     LoopRange loopRange,
     String bookId,
-    List<Chapter> playlist,
-  ) async {
-    final startChapter = _findChapterById(playlist, loopRange.startChapterId);
+    List<Chapter> playlist, {
+    Chapter? forceChapter,
+  }) async {
+    final startChapter =
+        forceChapter ?? _findChapterById(playlist, loopRange.startChapterId);
 
     if (startChapter == null) {
       talker.warning(
@@ -369,6 +418,11 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
 
     final startPosition = loopRange.getRestartPosition(startChapter);
 
+    talker.info(
+      '🔁 Restarting loop at ${startChapter.name} (ID: ${startChapter.id}) : ${startPosition.inSeconds}s (line ${loopRange.startLine + 1})',
+    );
+    talker.debug('🔁 Loop range: ${loopRange.startChapterId} -> ${loopRange.endChapterId}');
+
     // Mark that we're transitioning to prevent duplicate completion events
     _isTransitioningChapters = true;
 
@@ -377,12 +431,16 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
         bookName: bookId,
         chapter: startChapter,
         position: startPosition,
-        playlist: playlist, // Key addition: Pass the current playlist
+        playlist: playlist,
+        loopStartLine: loopRange.startLine,
+        loopEndLine: loopRange.endLine,
+        startChapterId: loopRange.startChapterId,
+        endChapterId: loopRange.endChapterId,
       ),
     );
 
     // Increased delay slightly for handler readiness
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(const Duration(milliseconds: 100));
     _isTransitioningChapters = false;
   }
 
@@ -397,14 +455,18 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
       (c) => c.id == completedChapter.id,
     );
 
+    talker.debug('🔁 Advance check: currentIndex=$currentIndex, playlistLength=${playlist.length}');
+
     if (currentIndex == -1 || currentIndex >= playlist.length - 1) {
-      talker.warning('⚠️ Cannot advance - end of playlist');
+      talker.warning('⚠️ Cannot advance - end of playlist or chapter not found');
       emit(state.copyWith(status: PlayerStatus.stopped));
       return;
     }
 
     final nextChapter = playlist[currentIndex + 1];
     final nextChapterId = nextChapter.id.toString();
+
+    talker.debug('🔁 Next chapter: ${nextChapter.name} (ID: $nextChapterId), contains=${loopRange.containsChapter(nextChapterId, playlist)}');
 
     // Verify the next chapter is still within our loop range
     if (!loopRange.containsChapter(nextChapterId, playlist)) {
@@ -423,7 +485,7 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
     add(PlayEvent(bookName: bookId, chapter: nextChapter));
 
     // Clear transition flag
-    Future.delayed(const Duration(milliseconds: 500), () {
+    Future.delayed(const Duration(milliseconds: 100), () {
       _isTransitioningChapters = false;
     });
   }
@@ -461,6 +523,7 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
   ) async {
     talker.debug('PlayFromPosition: ${event.position.inSeconds}s');
 
+
     final audioPath = await _getAudioPath(event.bookName, event.chapter);
     if (!await _fileExists(audioPath)) {
       talker.warning('Audio file not found: $audioPath');
@@ -474,16 +537,44 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
     );
 
     // Cast and call with initialPosition
-    await (audioHandler as AudioPlayerHandler).playFromFile(
-      audioPath,
-      item,
-      initialPosition: event.position,
-    );
+    // Calculate optional loop boundaries
+    Duration? loopStart;
+    Duration? loopEnd;
+    bool autoLoop = false;
 
-    // Re-apply loop boundaries if in range mode (existing logic)
-    if (state.loopMode == LoopMode.range &&
-        state.loopStartChapterId != null &&
-        state.loopEndChapterId != null &&
+    if (event.loopStartLine != null &&
+        event.loopEndLine != null &&
+        event.startChapterId != null &&
+        event.endChapterId != null) {
+      final loopRange = LoopRange(
+        startChapterId: event.startChapterId!,
+        endChapterId: event.endChapterId!,
+        startLine: event.loopStartLine!,
+        endLine: event.loopEndLine!,
+      );
+
+      final boundaries = loopRange.getBoundariesForChapter(event.chapter);
+      loopStart = boundaries.startTime;
+      loopEnd = boundaries.endTime;
+      autoLoop = boundaries.autoLoop;
+
+      // Update state with loop details, mode, AND chapter info
+      emit(
+        state.copyWith(
+          status: PlayerStatus.playing,
+          chapter: event.chapter,
+          bookId: event.bookName,
+          playlist: event.playlist,
+          loopMode: LoopMode.range,
+          loopStartChapterId: event.startChapterId,
+          loopEndChapterId: event.endChapterId,
+          loopStartLine: event.loopStartLine,
+          loopEndLine: event.loopEndLine,
+        ),
+      );
+    }
+    // Only re-apply if not setting new ones (and we are in range mode)
+    else if (state.loopMode == LoopMode.range &&
         state.loopStartLine != null &&
         state.loopEndLine != null) {
       final loopRange = LoopRange(
@@ -492,57 +583,31 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
         startLine: state.loopStartLine!,
         endLine: state.loopEndLine!,
       );
-
       final boundaries = loopRange.getBoundariesForChapter(event.chapter);
-
-      // Cast to AudioPlayerHandler
-      (audioHandler as AudioPlayerHandler).setLoopRange(
-        boundaries.startTime,
-        boundaries.endTime,
-        autoLoop: boundaries.autoLoop,
-      );
+      loopStart = boundaries.startTime;
+      loopEnd = boundaries.endTime;
+      autoLoop = boundaries.autoLoop;
     }
 
-    // Emit the playing state
-    emit(
-      state.copyWith(
-        status: PlayerStatus.playing,
-        chapter: event.chapter,
-        bookId: event.bookName,
-        playlist: event.playlist,
-      ),
+    // Cast and call with parameters
+    await (audioHandler as AudioPlayerHandler).playFromFile(
+      audioPath,
+      item,
+      initialPosition: event.position,
+      loopStart: loopStart,
+      loopEnd: loopEnd,
+      autoLoop: autoLoop,
     );
 
-    // New: If optional loop params provided, set the loop range
-    if (event.loopStartLine != null &&
-        event.loopEndLine != null &&
-        event.startChapterId != null &&
-        event.endChapterId != null) {
-      talker.debug('Setting loop range from PlayFromPositionEvent');
-
-      final loopRange = LoopRange(
-        startChapterId: event.startChapterId!,
-        endChapterId: event.endChapterId!,
-        startLine: event.loopStartLine!,
-        endLine: event.loopEndLine!,
-      );
-
-      // Apply boundaries for the current chapter
-      final boundaries = loopRange.getBoundariesForChapter(event.chapter);
-      (audioHandler as AudioPlayerHandler).setLoopRange(
-        boundaries.startTime,
-        boundaries.endTime,
-        autoLoop: boundaries.autoLoop,
-      );
-
-      // Update state with loop details and mode
+    // If we didn't emit above (no new loop range), verify we emit the new chapter info
+    if (state.chapter?.id != event.chapter.id ||
+        state.bookId != event.bookName) {
       emit(
         state.copyWith(
-          loopMode: LoopMode.range,
-          loopStartChapterId: event.startChapterId,
-          loopEndChapterId: event.endChapterId,
-          loopStartLine: event.loopStartLine,
-          loopEndLine: event.loopEndLine,
+          status: PlayerStatus.playing, // Optimistic update
+          chapter: event.chapter,
+          bookId: event.bookName,
+          playlist: event.playlist,
         ),
       );
     }
@@ -577,7 +642,10 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
     emit(state.copyWith(speed: event.speed));
   }
 
-  void _onSetLoopRange(SetLoopRangeEvent event, Emitter<PlayerState> emit) {
+  Future<void> _onSetLoopRange(
+    SetLoopRangeEvent event,
+    Emitter<PlayerState> emit,
+  ) async {
     if (state.chapter == null) return;
 
     final loopRange = LoopRange(
@@ -588,8 +656,10 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
     );
 
     talker.info(
-      '🔁 Setting loop range: ${loopRange.startChapterId}:${loopRange.startLine} → ${loopRange.endChapterId}:${loopRange.endLine}',
+      '🔁 Setting loop range: ${loopRange.startChapterId}:${loopRange.startLine} → ${loopRange.endChapterId}:${loopRange.endLine} (Immediate: ${event.playImmediately})',
     );
+    talker.debug('🔁 Current chapter: ${state.chapter!.name} (ID: ${state.chapter!.id})');
+    talker.debug('🔁 Playlist length: ${state.playlist.length}');
 
     emit(
       state.copyWith(
@@ -605,6 +675,28 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
     // Apply the loop range to the currently playing chapter
     if (state.chapter != null) {
       _applyLoopRange(state.chapter!, loopRange);
+    }
+
+    if (event.playImmediately) {
+      // Find the start chapter to jump to
+      final startChapter =
+          state.chapter!.id.toString() == loopRange.startChapterId
+          ? state.chapter
+          : _findChapterById(state.playlist, loopRange.startChapterId);
+
+      talker.debug('🔁 Start chapter decision: current=${state.chapter!.id}, startId=${loopRange.startChapterId}, found=${startChapter?.name}');
+
+      if (startChapter != null) {
+        talker.info('🔁 Jumping to start of loop range: ${startChapter.name}');
+        await _restartLoopRange(
+          loopRange,
+          state.bookId ?? '',
+          state.playlist,
+          forceChapter: startChapter,
+        );
+      } else {
+        talker.warning('🔁 Could not find start chapter for loop range');
+      }
     }
   }
 
@@ -645,10 +737,11 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
       title: chapter.name,
     );
 
-    await handler.playFromFile(audioPath, mediaItem);
-    await handler.setSpeed(state.speed);
+    // Calculate loop boundaries if in range mode
+    Duration? loopStart;
+    Duration? loopEnd;
+    bool autoLoop = false;
 
-    // Apply current loop settings
     if (state.loopMode == LoopMode.range &&
         state.loopStartLine != null &&
         state.loopEndLine != null) {
@@ -658,8 +751,21 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
         startLine: state.loopStartLine!,
         endLine: state.loopEndLine!,
       );
-      _applyLoopRange(chapter, loopRange);
+
+      final boundaries = loopRange.getBoundariesForChapter(chapter);
+      loopStart = boundaries.startTime;
+      loopEnd = boundaries.endTime;
+      autoLoop = boundaries.autoLoop;
     }
+
+    await handler.playFromFile(
+      audioPath,
+      mediaItem,
+      loopStart: loopStart,
+      loopEnd: loopEnd,
+      autoLoop: autoLoop,
+    );
+    await handler.setSpeed(state.speed);
   }
 
   void _applyLoopRange(Chapter chapter, LoopRange loopRange) {

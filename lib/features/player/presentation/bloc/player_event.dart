@@ -92,6 +92,7 @@ class SetLoopRangeEvent extends PlayerEvent {
   final String? startChapterId;
   final String? endChapterId;
   final List<Chapter>? playlist;
+  final bool playImmediately;
 
   const SetLoopRangeEvent({
     required this.startLine,
@@ -99,6 +100,7 @@ class SetLoopRangeEvent extends PlayerEvent {
     this.startChapterId,
     this.endChapterId,
     this.playlist,
+    this.playImmediately = true,
   });
 
   @override
@@ -108,6 +110,7 @@ class SetLoopRangeEvent extends PlayerEvent {
     startChapterId ?? '',
     endChapterId ?? '',
     playlist ?? [],
+    playImmediately,
   ];
 }
 

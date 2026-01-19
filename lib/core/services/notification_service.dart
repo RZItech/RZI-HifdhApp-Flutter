@@ -14,8 +14,28 @@ class NotificationService {
 
   Future<void> init() async {
     tz.initializeTimeZones();
-    final String timeZoneName = await FlutterTimezone.getLocalTimezone();
-    tz.setLocalLocation(tz.getLocation(timeZoneName));
+    String timeZoneName;
+    try {
+      final dynamic result = await FlutterTimezone.getLocalTimezone().timeout(
+        const Duration(seconds: 2),
+      );
+      // Handle v5 breaking change where it returns String or TimezoneInfo (if class)
+      if (result is String) {
+        timeZoneName = result;
+      } else {
+        // Assuming TimezoneInfo has toString or similar if it's a class
+        timeZoneName = result.toString();
+      }
+    } catch (e) {
+      debugPrint('Failed to get timezone: $e');
+      timeZoneName = 'UTC'; // Fallback
+    }
+    try {
+      tz.setLocalLocation(tz.getLocation(timeZoneName));
+    } catch (e) {
+      debugPrint('Failed to set location: $e');
+      tz.setLocalLocation(tz.getLocation('UTC'));
+    }
 
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');

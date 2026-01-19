@@ -53,10 +53,14 @@ class _ChapterCardState extends State<ChapterCard> {
   // Audio playback tracking for Player Mode
   int? _currentPlayingLine;
 
+  // Track whether we've signaled completion for the current loop end
+  bool _hasSignaledLoopEndCompletion = false;
+
   @override
   void initState() {
     super.initState();
     _parseLines();
+    _hasSignaledLoopEndCompletion = false;
     _speechService.initSpeech();
     _speechService.statusNotifier.addListener(_onStatusChange);
     _speechService.errorNotifier.addListener(_onError);
@@ -76,14 +80,56 @@ class _ChapterCardState extends State<ChapterCard> {
           _updateCurrentPlayingLine(position.inSeconds.toDouble());
         }
       });
+
+      // Listen to player state to immediately update on playback start and manage polling
+      _playerStateSub = context.read<PlayerBloc>().stream.listen((playerState) {
+        if (!mounted) return;
+
+        // Start polling when playing
+        if (playerState.status == PlayerStatus.playing &&
+            playerState.chapter?.id == widget.chapter.id &&
+            widget.chapter.audioLines.isNotEmpty) {
+          // Cancel existing timer if any
+          _positionTimer?.cancel();
+
+          // Start polling every 100ms to guarantee highlight updates
+          _positionTimer = Timer.periodic(const Duration(milliseconds: 100), (
+            _,
+          ) {
+            final bloc = context.read<PlayerBloc>();
+            if (mounted) {
+              _updateCurrentPlayingLine(
+                bloc.currentPosition.inSeconds.toDouble(),
+              );
+            }
+          });
+
+          // IMMEDIATE update on start
+          final bloc = context.read<PlayerBloc>();
+          // Force a quick check using the new getter
+          Future.microtask(() {
+            if (mounted) {
+              _updateCurrentPlayingLine(
+                bloc.currentPosition.inSeconds.toDouble(),
+              );
+            }
+          });
+        } else {
+          _positionTimer?.cancel();
+        }
+      });
     }
   }
 
   StreamSubscription? _positionSub;
+  StreamSubscription? _playerStateSub;
+  Timer? _positionTimer;
 
   @override
   void dispose() {
     _positionSub?.cancel();
+    _playerStateSub?.cancel();
+    _positionTimer?.cancel();
     _speechService.statusNotifier.removeListener(_onStatusChange);
     _speechService.errorNotifier.removeListener(_onError);
     _speechService.recognizedWordsNotifier.removeListener(
@@ -101,6 +147,7 @@ class _ChapterCardState extends State<ChapterCard> {
           _currentPlayingLine = null;
         });
       }
+      _hasSignaledLoopEndCompletion = false;
       return;
     }
 
@@ -117,6 +164,24 @@ class _ChapterCardState extends State<ChapterCard> {
       setState(() {
         _currentPlayingLine = newPlayingLine;
       });
+    }
+
+    // Check for loop end completion in cross-chapter loops
+    if (playerState.loopMode == LoopMode.range &&
+        playerState.loopEndChapterId != null &&
+        playerState.loopEndLine != null &&
+        playerState.chapter?.id.toString() == playerState.loopEndChapterId &&
+        !_hasSignaledLoopEndCompletion) {
+      final endLine = playerState.loopEndLine!;
+      if (endLine < widget.chapter.audioLines.length) {
+        final endTime = widget.chapter.audioLines[endLine].end;
+        if (currentSeconds >= endTime) {
+          talker.info('🔁 Loop end reached at line ${endLine + 1}, triggering completion');
+          _hasSignaledLoopEndCompletion = true;
+          // Trigger completion
+          context.read<PlayerBloc>().add(InternalPlaybackCompleteEvent(chapterId: widget.chapter.id));
+        }
+      }
     }
   }
 

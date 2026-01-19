@@ -13,10 +13,7 @@ class AudioPlayerHandler extends BaseAudioHandler
   Duration _currentPosition = Duration.zero;
 
   Stream<Duration> get positionStream => _player.positionStream;
-
-  Duration? _loopStart;
-  Duration? _loopEnd;
-  bool _autoLoop = true;
+  Duration get currentPosition => _currentPosition;
 
   // Track whether we've signaled completion for this playback session
   bool _hasSignaledCompletion = false;
@@ -25,13 +22,17 @@ class AudioPlayerHandler extends BaseAudioHandler
     // Configure audio session for background playback
     _configureAudioSession();
 
-    // Listen to player state changes
+    // Listen to player state changes (playing/processing state)
+    _player.playerStateStream.listen((state) {
+      _broadcastState();
+    });
+
+    // Listen to playback events (buffering, error, etc)
     _player.playbackEventStream.listen(_broadcastState);
 
-    // Listen to position updates for loop boundary enforcement
+    // Listen to position updates
     _player.positionStream.listen((position) {
       _currentPosition = position;
-      _enforceLoopBoundaries(position);
     });
 
     // Handle natural audio completion
@@ -83,34 +84,27 @@ class AudioPlayerHandler extends BaseAudioHandler
     }
   }
 
-  /// Configure loop boundaries for the current audio file
-  ///
-  /// For single-chapter loops: Both start and end are set, autoLoop=true
-  /// For cross-chapter loops: Only relevant boundaries are set, autoLoop=false
-  void setLoopRange(Duration? start, Duration? end, {bool autoLoop = true}) {
-    _loopStart = start;
-    _loopEnd = end;
-    _autoLoop = autoLoop;
-  }
+  /// Configure loop boundaries for the current audio file using setClip
+  /// Is async to support native calls
+  Future<void> setLoopRange(
+    Duration? start,
+    Duration? end, {
+    bool autoLoop = false,
+  }) async {
+    // Use just_audio's setClip to restrict playback region
+    await _player.setClip(start: start, end: end);
 
-  /// Enforce loop boundaries during playback
-  void _enforceLoopBoundaries(Duration position) {
-    // Check if we've reached the end boundary
-    if (_loopEnd != null && position >= _loopEnd!) {
-      if (_autoLoop && _loopStart != null) {
-        // Single-chapter loop: automatically loop back to start
-        _player.seek(_loopStart!);
-      } else {
-        // Cross-chapter loop or end of clip: signal completion
-        // The bloc will handle transitioning to the next chapter
-        _signalCompletion();
-        pause(); // Pause at the end position for visual feedback
-      }
+    // Only use LoopMode.one if we have VALID boundaries AND autoLoop is true
+    if (autoLoop && start != null && end != null) {
+      await _player.setLoopMode(LoopMode.one);
+    } else {
+      await _player.setLoopMode(LoopMode.off);
     }
-    // Enforce start boundary if user seeks backward in auto-loop mode
-    else if (_autoLoop && _loopStart != null && position < _loopStart!) {
-      _player.seek(_loopStart!);
-    }
+
+    talker.debug(
+      '🎯 setClip applied: start=${start?.inSeconds}s, end=${end?.inSeconds}s, '
+      'loopMode=${(autoLoop && start != null && end != null) ? "one" : "off"}',
+    );
   }
 
   /// Signal that playback has completed
@@ -126,15 +120,22 @@ class AudioPlayerHandler extends BaseAudioHandler
     );
   }
 
+  // Guard to prevent state flickering during file loading
+  bool _isInitializingPlayback = false;
+
   void _broadcastState([PlaybackEvent? event]) {
     final playing = _player.playing;
     final processingState = _player.processingState;
+
+    // If we are artificially holding the playing state (during file load),
+    // override the player's actual 'false' state.
+    final effectivePlaying = _isInitializingPlayback ? true : playing;
 
     playbackState.add(
       playbackState.value.copyWith(
         controls: [
           MediaControl.rewind,
-          if (playing) MediaControl.pause else MediaControl.play,
+          if (effectivePlaying) MediaControl.pause else MediaControl.play,
           MediaControl.stop,
           MediaControl.fastForward,
         ],
@@ -145,7 +146,7 @@ class AudioPlayerHandler extends BaseAudioHandler
         },
         androidCompactActionIndices: const [0, 1, 3],
         processingState: _mapProcessingState(processingState),
-        playing: playing,
+        playing: effectivePlaying,
         updatePosition: _currentPosition,
         bufferedPosition: _player.bufferedPosition,
         speed: _player.speed,
@@ -199,17 +200,23 @@ class AudioPlayerHandler extends BaseAudioHandler
     String filePath,
     MediaItem item, {
     Duration initialPosition = Duration.zero,
+    Duration? loopStart,
+    Duration? loopEnd,
+    bool autoLoop = false,
   }) async {
     mediaItem.add(item);
 
     // Reset completion flag for new playback session
     _hasSignaledCompletion = false;
 
-    // Transition to buffering state before starting playback
+    // Flag that we are initializing playback to prevent "Paused" flicker
+    _isInitializingPlayback = true;
+
+    // Transition to buffering state with optimistic playing=true
     playbackState.add(
       playbackState.value.copyWith(
         processingState: AudioProcessingState.buffering,
-        playing: false,
+        playing: true,
       ),
     );
 
@@ -219,12 +226,26 @@ class AudioPlayerHandler extends BaseAudioHandler
         AudioSource.file(filePath),
         initialPosition: initialPosition,
       );
+
+      // ALWAYS apply loop boundaries explicitly
+      await setLoopRange(loopStart, loopEnd, autoLoop: autoLoop);
+
+      // FORCE seek to ensure position stream emits
+      await _player.seek(initialPosition);
+      talker.debug(
+        '🎯 Forced seek to ${initialPosition.inSeconds}s (start of playback)',
+      );
+
+      // Initialization complete, allowed to reflect actual player state
+      _isInitializingPlayback = false;
       await _player.play();
     } catch (e) {
+      _isInitializingPlayback = false;
       talker.error('Playback start failed: $e');
       playbackState.add(
         playbackState.value.copyWith(
           processingState: AudioProcessingState.error,
+          playing: false,
         ),
       );
     }

@@ -42,8 +42,8 @@ dependencies:
   archive: ^4.0.7
   yaml: ^3.1.3
   audio_service: ^0.18.17  # Keep this—works great with just_audio
-  just_audio: ^0.9.37  # New: Replace audioplayers
-  audio_session: ^0.1.19
+  just_audio: ^0.10.5  # New: Replace audioplayers
+  audio_session: ^0.2.2
   get_it: ^9.2.0
   speech_to_text: ^7.3.0
   permission_handler: ^12.0.1
@@ -54,7 +54,7 @@ dependencies:
   share_plus: ^12.0.1
   flutter_local_notifications: ^19.5.0
   timezone: ^0.10.1
-  flutter_timezone: ^3.0.1
+  flutter_timezone: ^5.0.1
   http: ^1.6.0
 
 dev_dependencies:

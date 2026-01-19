@@ -1,28 +1,22 @@
 PODS:
   - Flutter (1.0.0)
-  - flutter_timezone (0.0.1):
-    - Flutter
   - permission_handler_apple (9.3.0):
     - Flutter
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
-  - flutter_timezone (from `.symlinks/plugins/flutter_timezone/ios`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
 
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
-  flutter_timezone:
-    :path: ".symlinks/plugins/flutter_timezone/ios"
   permission_handler_apple:
     :path: ".symlinks/plugins/permission_handler_apple/ios"
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
-  flutter_timezone: ee50ce7786b5fde27e2fe5375bbc8c9661ffc13f
   permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
 
-PODFILE CHECKSUM: 09a89a94eabc5eb03b91d9fbeb16ee12bfb9d1ea
+PODFILE CHECKSUM: e8a511426a86f01840bb0e71584eda0d0c49de13
 
 COCOAPODS: 1.16.2
